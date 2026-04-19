@@ -1,4 +1,4 @@
-# Meschtastic_Mass_Text
+# Meshtastic_Mass_Text
 
 Kleines Python-Skript fuer Meshtastic, das eine Direktnachricht an alle bekannten Nodes sendet.
 
