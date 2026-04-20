@@ -8,6 +8,16 @@ The format is inspired by Keep a Changelog and uses project release tags where a
 
 - Reserved for upcoming changes before the next tagged release.
 
+## [0.7.4] - 2026-04-20
+
+### Added
+
+- Added hot-reload support for the send workflow so active send cfg changes can be picked up during a running send job.
+
+### Changed
+
+- Kept send-mode port changes restart-safe by detecting them and warning instead of switching the active serial connection mid-run.
+
 ## [0.7.3] - 2026-04-20
 
 ### Changed

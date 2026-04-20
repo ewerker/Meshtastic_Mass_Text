@@ -199,6 +199,44 @@ LISTEN_RESTART_REQUIRED_KEYS = (
     "port",
     "timeout",
 )
+SEND_PREP_HOT_RELOAD_KEYS = (
+    "message",
+    "channel_index",
+    "ack",
+    "include_unmessageable",
+    "delay",
+    "timeout",
+    "final_wait",
+    "target_mode",
+    "target_filter",
+    "selection",
+    "unattended",
+    "log_file",
+    "log_rotate_max_mb",
+    "log_rotate_backups",
+    "retry_implicit_ack",
+    "retry_nak",
+    "dry_run",
+    "history_file",
+    "history_filter",
+    "history_limit",
+)
+SEND_ACTIVE_HOT_RELOAD_KEYS = (
+    "channel_index",
+    "ack",
+    "delay",
+    "timeout",
+    "final_wait",
+    "log_file",
+    "log_rotate_max_mb",
+    "log_rotate_backups",
+    "retry_implicit_ack",
+    "retry_nak",
+    "history_file",
+)
+SEND_RESTART_REQUIRED_KEYS = (
+    "port",
+)
 
 ANSI_RESET = "\033[0m"
 ANSI_BOLD = "\033[1m"
@@ -1621,6 +1659,31 @@ def reload_listen_runtime_settings(settings: dict) -> tuple[list[str], list[tupl
     return changed_families, restart_required
 
 
+def reload_send_runtime_settings(settings: dict, active_only: bool = False) -> tuple[list[str], list[tuple[str, object]]]:
+    sources = settings.setdefault("__sources", {})
+    changed_families: list[str] = []
+    restart_required: list[tuple[str, object]] = []
+
+    send_settings, send_sources = load_config_with_sources(SEND_CONFIG_PATH, "send")
+    if SEND_CONFIG_PATH.exists():
+        changed_families.append("send")
+
+    hot_reload_keys = SEND_ACTIVE_HOT_RELOAD_KEYS if active_only else SEND_PREP_HOT_RELOAD_KEYS
+    for key in hot_reload_keys:
+        if source_is_runtime_override(sources.get(key)):
+            continue
+        settings[key] = send_settings[key]
+        sources[key] = send_sources.get(key, "default")
+
+    for key in SEND_RESTART_REQUIRED_KEYS:
+        new_value = send_settings[key]
+        current_value = settings.get(key)
+        if new_value != current_value:
+            restart_required.append((key, new_value))
+
+    return changed_families, restart_required
+
+
 def get_recipient_label(interface: SerialInterface, node_id: str | None) -> str:
     if not node_id:
         return "unknown"
@@ -2189,10 +2252,6 @@ def run_listen_mode(interface: SerialInterface, settings: dict) -> int:
         print("Scope filter: direct messages only")
     if settings["listen_group_only"]:
         print("Scope filter: group traffic only")
-    if settings["listen_text_only"]:
-        print("Content filter: text packets only")
-    if settings["listen_verbose"]:
-        print("Verbose receive output: enabled")
     if log_path:
         print(colorize(f"Logging to: {log_path}", "cyan"))
         set_log_rotation_policy(log_path, settings["log_rotate_max_mb"], settings["log_rotate_backups"])
@@ -2405,6 +2464,8 @@ def send_with_ack_retry(
     message: str,
     settings: dict,
     log_path: Path | None,
+    refresh_settings=None,
+    log_path_resolver=None,
 ) -> tuple[str, str, int, int]:
     node_id = recipient["node_id"]
     label = recipient["label"]
@@ -2413,6 +2474,9 @@ def send_with_ack_retry(
     nak_retries_used = 0
 
     while True:
+        if refresh_settings is not None:
+            refresh_settings()
+        current_log_path = log_path_resolver() if log_path_resolver is not None else log_path
         attempt += 1
         packet, ack_packet = wait_for_ack(
             interface,
@@ -2424,7 +2488,7 @@ def send_with_ack_retry(
         packet_id = getattr(packet, "id", "unknown")
         ack_kind, ack_message = classify_ack(interface, ack_packet)
         append_jsonl(
-            log_path,
+            current_log_path,
             "send_attempt",
             {
                 "recipient_id": node_id,
@@ -2477,6 +2541,7 @@ def run_send_mode(interface: SerialInterface, settings: dict) -> int:
 
     log_path = resolve_log_path(settings["log_file"])
     history_path = resolve_history_path(settings["history_file"], "send")
+    watched_send_cfg_mtime = file_mtime_ns(SEND_CONFIG_PATH)
     recipients = collect_recipients(interface, settings["include_unmessageable"])
 
     print_effective_parameters(
@@ -2510,6 +2575,45 @@ def run_send_mode(interface: SerialInterface, settings: dict) -> int:
         return 1
     if log_path:
         set_log_rotation_policy(log_path, settings["log_rotate_max_mb"], settings["log_rotate_backups"])
+
+    def maybe_reload_send_config(active_only: bool = False) -> None:
+        nonlocal log_path, history_path, watched_send_cfg_mtime, recipients, message
+        current_mtime = file_mtime_ns(SEND_CONFIG_PATH)
+        if current_mtime == watched_send_cfg_mtime:
+            return
+        watched_send_cfg_mtime = current_mtime
+
+        previous_log_path = log_path
+        previous_history_path = history_path
+        reloaded_families, restart_required = reload_send_runtime_settings(settings, active_only=active_only)
+        log_path = resolve_log_path(settings["log_file"])
+        history_path = resolve_history_path(settings["history_file"], "send")
+        if active_only:
+            if reloaded_families:
+                print(colorize("Configuration reloaded: send cfg (active send settings)", "magenta", bold=True))
+        else:
+            if reloaded_families:
+                print(colorize("Configuration reloaded: send cfg", "magenta", bold=True))
+            if not source_is_runtime_override(settings.get("__sources", {}).get("message")):
+                message = settings["message"]
+            recipients = collect_recipients(interface, settings["include_unmessageable"])
+
+        if previous_log_path != log_path:
+            if log_path:
+                print(colorize(f"Logging switched to: {log_path}", "cyan"))
+            else:
+                print(colorize("Logging disabled by config reload.", "cyan"))
+        if log_path:
+            set_log_rotation_policy(log_path, settings["log_rotate_max_mb"], settings["log_rotate_backups"])
+
+        if previous_history_path != history_path:
+            print(colorize(f"History file switched to: {history_path}", "cyan"))
+
+        restart_required_map = {key: value for key, value in restart_required}
+        if "port" in restart_required_map:
+            print(colorize(f"Port changed in send cfg ({restart_required_map['port']}). Restart required to use the new serial port setting.", "yellow", bold=True))
+
+    maybe_reload_send_config(active_only=False)
 
     try:
         recipients, target_description = select_recipients(
@@ -2550,6 +2654,7 @@ def run_send_mode(interface: SerialInterface, settings: dict) -> int:
     total_attempts = 0
 
     for recipient in recipients:
+        maybe_reload_send_config(active_only=True)
         node_id = recipient["node_id"]
         label = recipient["label"]
         try:
@@ -2560,6 +2665,8 @@ def run_send_mode(interface: SerialInterface, settings: dict) -> int:
                     message,
                     settings,
                     log_path,
+                    refresh_settings=lambda: maybe_reload_send_config(active_only=True),
+                    log_path_resolver=lambda: log_path,
                 )
                 total_attempts += attempts_used
                 if ack_kind == "ack":
