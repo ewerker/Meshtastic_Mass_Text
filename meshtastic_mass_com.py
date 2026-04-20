@@ -43,11 +43,14 @@ DEFAULT_SETTINGS = {
     "message": "",
     "unattended": False,
     "log_file": "",
+    "log_rotate_max_mb": 10,
+    "log_rotate_backups": 5,
     "listen_filter": "",
     "listen_channel_index": None,
     "listen_dm_only": False,
     "listen_group_only": False,
     "listen_text_only": False,
+    "listen_verbose": False,
     "autoresponder": False,
     "autoresponder_unicast": False,
     "autoresponder_sender_mode": "all",
@@ -55,7 +58,7 @@ DEFAULT_SETTINGS = {
     "autoresponder_message_mode": "filter",
     "autoresponder_message_filter": "!Ping",
     "autoresponder_reply": "Pong",
-    "autoresponder_reply_template": "Autoresponder: from %longname%: %message% / Message;  %answer%",
+    "autoresponder_reply_template": "Autoresponder : %shortname%: %message% / Message:  %answer%",
     "retry_implicit_ack": 0,
     "retry_nak": 0,
     "dry_run": False,
@@ -78,11 +81,14 @@ SETTING_TYPES = {
     "message": "str",
     "unattended": "bool",
     "log_file": "str",
+    "log_rotate_max_mb": "int",
+    "log_rotate_backups": "int",
     "listen_filter": "str",
     "listen_channel_index": "optional_int",
     "listen_dm_only": "bool",
     "listen_group_only": "bool",
     "listen_text_only": "bool",
+    "listen_verbose": "bool",
     "autoresponder": "bool",
     "autoresponder_unicast": "bool",
     "autoresponder_sender_mode": "str",
@@ -113,6 +119,8 @@ SEND_CONFIG_KEYS = (
     "message",
     "unattended",
     "log_file",
+    "log_rotate_max_mb",
+    "log_rotate_backups",
     "retry_implicit_ack",
     "retry_nak",
     "dry_run",
@@ -129,8 +137,11 @@ LISTEN_CONFIG_KEYS = (
     "listen_dm_only",
     "listen_group_only",
     "listen_text_only",
+    "listen_verbose",
     "unattended",
     "log_file",
+    "log_rotate_max_mb",
+    "log_rotate_backups",
     "history_file",
     "history_filter",
     "history_limit",
@@ -169,6 +180,25 @@ AUTORESPONDER_SEND_KEY_MAP = {
     "retry_implicit_ack": "autoresponder_send_retry_implicit_ack",
     "retry_nak": "autoresponder_send_retry_nak",
 }
+LISTEN_HOT_RELOAD_KEYS = (
+    "listen_filter",
+    "listen_channel_index",
+    "listen_dm_only",
+    "listen_group_only",
+    "listen_text_only",
+    "listen_verbose",
+    "unattended",
+    "log_file",
+    "log_rotate_max_mb",
+    "log_rotate_backups",
+    "history_file",
+    "history_filter",
+    "history_limit",
+)
+LISTEN_RESTART_REQUIRED_KEYS = (
+    "port",
+    "timeout",
+)
 
 ANSI_RESET = "\033[0m"
 ANSI_BOLD = "\033[1m"
@@ -181,6 +211,7 @@ ANSI_COLORS = {
     "cyan": "\033[36m",
     "white": "\033[37m",
 }
+LOG_ROTATION_POLICY: dict[str, tuple[int, int]] = {}
 
 
 def init_console_colors() -> bool:
@@ -414,6 +445,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="In listen mode, only show text packets and hide telemetry, node info, and other packet types.",
     )
     parser.add_argument(
+        "--verbose-listen",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="In listen mode, also print the full received record as JSON, similar to the receive log.",
+    )
+    parser.add_argument(
         "-u",
         "--unattended",
         action=argparse.BooleanOptionalAction,
@@ -431,7 +468,7 @@ def example_command_for_family(config_family: str) -> str:
     if config_family == "listen":
         return (
             'python ./meshtastic_mass_com.py --listen --port <PORT> --listen-filter "FR*" '
-            '--listen-channel-index 1 --dm-only --text-only --log-file "./listen_log.jsonl" '
+            '--listen-channel-index 1 --dm-only --text-only --verbose-listen --log-file "./listen_log.jsonl" '
             '--history-file "./meshtastic_mass_com.listen.history.jsonl" --unattended --forcecfg'
         )
     if config_family == "autoresponder":
@@ -600,11 +637,14 @@ def config_file_values(settings: dict, config_family: str) -> dict[str, str]:
         "message": settings["message"] or "",
         "unattended": str(settings["unattended"]).lower(),
         "log_file": settings["log_file"] or "",
+        "log_rotate_max_mb": str(settings["log_rotate_max_mb"]),
+        "log_rotate_backups": str(settings["log_rotate_backups"]),
         "listen_filter": settings["listen_filter"] or "",
         "listen_channel_index": "" if settings["listen_channel_index"] is None else str(settings["listen_channel_index"]),
         "listen_dm_only": str(settings["listen_dm_only"]).lower(),
         "listen_group_only": str(settings["listen_group_only"]).lower(),
         "listen_text_only": str(settings["listen_text_only"]).lower(),
+        "listen_verbose": str(settings["listen_verbose"]).lower(),
         "autoresponder": str(settings["autoresponder"]).lower(),
         "autoresponder_unicast": str(settings["autoresponder_unicast"]).lower(),
         "autoresponder_sender_mode": settings["autoresponder_sender_mode"] or "all",
@@ -657,7 +697,8 @@ def render_config_text(settings: dict, config_family_or_path) -> str:
         "# --port and --channel-index select device and channel.",
         "# --target-mode / --filter / --selection control send-mode recipients.",
         "# --ack / --retry-implicit-ack / --retry-nak control delivery handling.",
-        "# --listen-filter / --listen-channel-index / --dm-only / --group-only / --text-only control listen-mode filtering.",
+        "# --listen-filter / --listen-channel-index / --dm-only / --group-only / --text-only / --verbose-listen control listen-mode filtering and output.",
+        "# --log-file plus log rotation settings control JSONL log growth.",
         "# --log-file / --history-file / --history-filter / --history-limit control local files and history output.",
         "# --forcecfg / --protectcfg / --clear control cfg handling.",
         "# Notes for this cfg family:",
@@ -713,6 +754,8 @@ def render_config_text(settings: dict, config_family_or_path) -> str:
                 f"listen_group_only = {values['listen_group_only']}",
                 "# true shows only text packets while listening.",
                 f"listen_text_only = {values['listen_text_only']}",
+                "# true also prints the full received record as JSON, similar to the receive log.",
+                f"listen_verbose = {values['listen_verbose']}",
                 "",
                 "# Runtime",
                 "# true skips interactive prompts such as serial port selection.",
@@ -721,6 +764,10 @@ def render_config_text(settings: dict, config_family_or_path) -> str:
                 "# Files",
                 "# Optional JSONL log file for listen activity.",
                 f"log_file = {values['log_file']}",
+                "# Maximum size in MB before the log file rotates to .1, .2, ...",
+                f"log_rotate_max_mb = {values['log_rotate_max_mb']}",
+                "# Number of rotated log files to keep. 0 disables rotation.",
+                f"log_rotate_backups = {values['log_rotate_backups']}",
                 "# Optional JSONL history or inbox file for listen/history workflows.",
                 f"history_file = {values['history_file']}",
                 "# Filter applied by history mode when showing saved entries.",
@@ -757,7 +804,7 @@ def render_config_text(settings: dict, config_family_or_path) -> str:
                 "# Optional reply template with variables from the triggering message.",
                 "# Available variables: %node_id%, %label%, %shortname%, %longname%, %message%, %channel_index%, %channel_name%, %scope%, %answer%",
                 "# %answer% is replaced with the configured autoresponder_reply text.",
-                "# Example: Autoresponder: from %longname%: %message% / Message;  %answer%",
+                "# Example: Autoresponder : %shortname%: %message% / Message:  %answer%",
                 f"autoresponder_reply_template = {values['autoresponder_reply_template']}",
                 "",
             ]
@@ -809,6 +856,10 @@ def render_config_text(settings: dict, config_family_or_path) -> str:
                 "# Files",
                 "# Optional JSONL log file for send/broadcast activity.",
                 f"log_file = {values['log_file']}",
+                "# Maximum size in MB before the log file rotates to .1, .2, ...",
+                f"log_rotate_max_mb = {values['log_rotate_max_mb']}",
+                "# Number of rotated log files to keep. 0 disables rotation.",
+                f"log_rotate_backups = {values['log_rotate_backups']}",
                 "# Optional JSONL history or inbox file for send/history workflows.",
                 f"history_file = {values['history_file']}",
                 "# Filter applied by history mode when showing saved entries.",
@@ -896,6 +947,7 @@ def collect_cli_overrides(args: argparse.Namespace) -> dict:
         "listen_dm_only",
         "listen_group_only",
         "listen_text_only",
+        "listen_verbose",
         "autoresponder",
         "retry_implicit_ack",
         "retry_nak",
@@ -1424,6 +1476,46 @@ def resolve_log_path(log_file: str | None) -> Path | None:
     return path
 
 
+def set_log_rotation_policy(log_path: Path | None, max_mb: int, backups: int) -> None:
+    if log_path is None:
+        return
+    max_bytes = max(0, int(max_mb)) * 1024 * 1024
+    LOG_ROTATION_POLICY[str(log_path)] = (max_bytes, max(0, int(backups)))
+
+
+def rotate_log_if_needed(log_path: Path) -> None:
+    max_bytes, backups = LOG_ROTATION_POLICY.get(str(log_path), (0, 0))
+    if max_bytes <= 0 or backups <= 0:
+        return
+    try:
+        if not log_path.exists() or log_path.stat().st_size < max_bytes:
+            return
+    except OSError:
+        return
+
+    oldest = log_path.with_name(f"{log_path.name}.{backups}")
+    try:
+        if oldest.exists():
+            oldest.unlink()
+    except OSError:
+        return
+
+    for index in range(backups - 1, 0, -1):
+        src = log_path.with_name(f"{log_path.name}.{index}")
+        dst = log_path.with_name(f"{log_path.name}.{index + 1}")
+        try:
+            if src.exists():
+                src.replace(dst)
+        except OSError:
+            return
+
+    try:
+        if log_path.exists():
+            log_path.replace(log_path.with_name(f"{log_path.name}.1"))
+    except OSError:
+        return
+
+
 def resolve_history_path(history_file: str | None, config_family: str) -> Path:
     if not history_file:
         return history_path_for_family(config_family)
@@ -1454,6 +1546,7 @@ def append_jsonl(log_path: Path | None, event_type: str, payload: dict) -> None:
     if log_path is None:
         return
     log_path.parent.mkdir(parents=True, exist_ok=True)
+    rotate_log_if_needed(log_path)
     record = {
         "timestamp": now_string(),
         "event": event_type,
@@ -1472,6 +1565,60 @@ def append_history(history_path: Path, entry_type: str, payload: dict) -> None:
     }
     with history_path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(record, ensure_ascii=True, default=str) + "\n")
+
+
+def file_mtime_ns(path: Path) -> int | None:
+    try:
+        return path.stat().st_mtime_ns
+    except FileNotFoundError:
+        return None
+    except OSError:
+        return None
+
+
+def source_is_runtime_override(source: str | None) -> bool:
+    return source in {"cmd", "prompt", "auto"}
+
+
+def reload_listen_runtime_settings(settings: dict) -> tuple[list[str], list[tuple[str, object]]]:
+    sources = settings.setdefault("__sources", {})
+    changed_families: list[str] = []
+    restart_required: list[tuple[str, object]] = []
+
+    listen_settings, listen_sources = load_config_with_sources(LISTEN_CONFIG_PATH, "listen")
+    if LISTEN_CONFIG_PATH.exists():
+        changed_families.append("listen")
+    for key in LISTEN_HOT_RELOAD_KEYS:
+        if source_is_runtime_override(sources.get(key)):
+            continue
+        settings[key] = listen_settings[key]
+        sources[key] = listen_sources.get(key, "default")
+    for key in LISTEN_RESTART_REQUIRED_KEYS:
+        new_value = listen_settings[key]
+        current_value = settings.get(key)
+        if new_value != current_value:
+            restart_required.append((key, new_value))
+
+    autoresponder_settings, autoresponder_sources = load_config_with_sources(AUTORESPONDER_CONFIG_PATH, "autoresponder")
+    if AUTORESPONDER_CONFIG_PATH.exists():
+        changed_families.append("autoresponder")
+    for key in AUTORESPONDER_CONFIG_KEYS:
+        if source_is_runtime_override(sources.get(key)):
+            continue
+        settings[key] = autoresponder_settings[key]
+        sources[key] = autoresponder_sources.get(key, "default")
+
+    send_settings, send_sources = load_config_with_sources(SEND_CONFIG_PATH, "send")
+    if SEND_CONFIG_PATH.exists():
+        changed_families.append("send")
+    for key in AUTORESPONDER_SEND_KEYS:
+        mapped_key = AUTORESPONDER_SEND_KEY_MAP[key]
+        if source_is_runtime_override(sources.get(mapped_key)):
+            continue
+        settings[mapped_key] = send_settings[key]
+        sources[mapped_key] = send_sources.get(key, "default")
+
+    return changed_families, restart_required
 
 
 def get_recipient_label(interface: SerialInterface, node_id: str | None) -> str:
@@ -1986,6 +2133,12 @@ def run_listen_mode(interface: SerialInterface, settings: dict) -> int:
     log_path = resolve_log_path(settings["log_file"])
     history_path = resolve_history_path(settings["history_file"], "listen")
     received_count = 0
+    watched_cfg_paths = {
+        "listen": LISTEN_CONFIG_PATH,
+        "autoresponder": AUTORESPONDER_CONFIG_PATH,
+        "send": SEND_CONFIG_PATH,
+    }
+    cfg_mtimes = {family: file_mtime_ns(path) for family, path in watched_cfg_paths.items()}
 
     print_effective_parameters(
         settings,
@@ -1998,6 +2151,7 @@ def run_listen_mode(interface: SerialInterface, settings: dict) -> int:
             ("listen_dm_only", settings["listen_dm_only"]),
             ("listen_group_only", settings["listen_group_only"]),
             ("listen_text_only", settings["listen_text_only"]),
+            ("listen_verbose", settings["listen_verbose"]),
             ("autoresponder", settings["autoresponder"]),
             ("autoresponder_unicast", settings["autoresponder_unicast"]),
             ("autoresponder_sender_mode", settings["autoresponder_sender_mode"]),
@@ -2018,6 +2172,8 @@ def run_listen_mode(interface: SerialInterface, settings: dict) -> int:
             ("autoresponder_send_retry_nak", "send_retry_nak", settings.get("autoresponder_send_retry_nak")),
             ("unattended", settings["unattended"]),
             ("log_file", log_path if settings["log_file"] else "<disabled>"),
+            ("log_rotate_max_mb", settings["log_rotate_max_mb"]),
+            ("log_rotate_backups", settings["log_rotate_backups"]),
             ("history_file", history_path),
             ("history_filter", settings["history_filter"]),
             ("history_limit", settings["history_limit"]),
@@ -2035,21 +2191,73 @@ def run_listen_mode(interface: SerialInterface, settings: dict) -> int:
         print("Scope filter: group traffic only")
     if settings["listen_text_only"]:
         print("Content filter: text packets only")
+    if settings["listen_verbose"]:
+        print("Verbose receive output: enabled")
     if log_path:
         print(colorize(f"Logging to: {log_path}", "cyan"))
+        set_log_rotation_policy(log_path, settings["log_rotate_max_mb"], settings["log_rotate_backups"])
     print(colorize(f"History file: {history_path}", "cyan"))
     if settings["autoresponder"]:
         print(colorize("Autoresponder: enabled", "magenta", bold=True))
         if not (settings.get("autoresponder_reply") or "").strip():
             print(colorize("Autoresponder reply text is empty, so no replies will be sent.", "yellow"))
 
+    def maybe_reload_runtime_config() -> None:
+        nonlocal log_path, history_path, cfg_mtimes
+        changed_families: list[str] = []
+        for family, path in watched_cfg_paths.items():
+            current_mtime = file_mtime_ns(path)
+            if current_mtime != cfg_mtimes.get(family):
+                cfg_mtimes[family] = current_mtime
+                changed_families.append(family)
+
+        if not changed_families:
+            return
+
+        previous_log_path = log_path
+        previous_history_path = history_path
+        reloaded_families, restart_required = reload_listen_runtime_settings(settings)
+        log_path = resolve_log_path(settings["log_file"])
+        history_path = resolve_history_path(settings["history_file"], "listen")
+
+        changed_label = ", ".join(f"{family} cfg" for family in changed_families)
+        if reloaded_families:
+            print(colorize(f"Configuration reloaded: {changed_label}", "magenta", bold=True))
+        else:
+            print(colorize(f"Configuration change detected: {changed_label}", "magenta", bold=True))
+
+        if previous_log_path != log_path:
+            if log_path:
+                print(colorize(f"Logging switched to: {log_path}", "cyan"))
+            else:
+                print(colorize("Logging disabled by config reload.", "cyan"))
+        if log_path:
+            set_log_rotation_policy(log_path, settings["log_rotate_max_mb"], settings["log_rotate_backups"])
+
+        if previous_history_path != history_path:
+            print(colorize(f"History file switched to: {history_path}", "cyan"))
+
+        if settings["autoresponder"]:
+            print(colorize("Autoresponder: enabled", "magenta", bold=True))
+        else:
+            print(colorize("Autoresponder: disabled", "yellow"))
+
+        restart_required_map = {key: value for key, value in restart_required}
+        if "port" in restart_required_map:
+            print(colorize(f"Port changed in listen cfg ({restart_required_map['port']}). Restart required to use the new serial port setting.", "yellow", bold=True))
+        if "timeout" in restart_required_map:
+            print(colorize("Listen connection timeout changed in cfg. Restart required for the new timeout to affect the serial connection.", "yellow"))
+
     def on_receive(packet, interface):
         nonlocal received_count
+        maybe_reload_runtime_config()
         if not packet_matches_listen_filters(interface, packet, settings):
             return
         received_count += 1
         record = build_receive_record(interface, packet)
         print(format_receive_line(record))
+        if settings["listen_verbose"]:
+            print(colorize(f"  record: {json.dumps(record, ensure_ascii=True, sort_keys=True)}", "blue"))
         append_jsonl(log_path, "receive", record)
         append_history(history_path, "receive", record)
         if should_autorespond(interface, packet, record, settings):
@@ -2061,6 +2269,7 @@ def run_listen_mode(interface: SerialInterface, settings: dict) -> int:
     pub.subscribe(on_receive, "meshtastic.receive")
     try:
         while True:
+            maybe_reload_runtime_config()
             time.sleep(0.5)
     except KeyboardInterrupt:
         print()
@@ -2144,12 +2353,16 @@ def run_broadcast_mode(interface: SerialInterface, settings: dict) -> int:
             ("unattended", settings["unattended"]),
             ("final_wait", settings["final_wait"]),
             ("log_file", log_path if settings["log_file"] else "<disabled>"),
+            ("log_rotate_max_mb", settings["log_rotate_max_mb"]),
+            ("log_rotate_backups", settings["log_rotate_backups"]),
             ("history_file", history_path),
         ],
     )
 
     if settings["ack"]:
         print(colorize("Broadcast mode ignores --ack because broadcast messages do not produce a single direct ACK path.", "yellow"))
+    if log_path:
+        set_log_rotation_policy(log_path, settings["log_rotate_max_mb"], settings["log_rotate_backups"])
 
     if not confirm_broadcast(message, settings["channel_index"], channel_label, settings["unattended"]):
         print(colorize("Cancelled.", "yellow"))
@@ -2286,6 +2499,8 @@ def run_send_mode(interface: SerialInterface, settings: dict) -> int:
             ("dry_run", settings["dry_run"]),
             ("unattended", settings["unattended"]),
             ("log_file", log_path if settings["log_file"] else "<disabled>"),
+            ("log_rotate_max_mb", settings["log_rotate_max_mb"]),
+            ("log_rotate_backups", settings["log_rotate_backups"]),
             ("history_file", history_path),
         ],
     )
@@ -2293,6 +2508,8 @@ def run_send_mode(interface: SerialInterface, settings: dict) -> int:
     if not recipients:
         print(colorize("No matching known nodes found.", "red"))
         return 1
+    if log_path:
+        set_log_rotation_policy(log_path, settings["log_rotate_max_mb"], settings["log_rotate_backups"])
 
     try:
         recipients, target_description = select_recipients(

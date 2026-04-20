@@ -52,6 +52,8 @@ SEND_FIELDS = [
     FieldSpec("dry_run", "Dry Run", "bool", False, "Preview only, do not transmit. Example: disabled."),
     FieldSpec("unattended", "Unattended", "bool", False, "Skip prompts; all required values must come from CLI or cfg. Example: disabled."),
     FieldSpec("log_file", "Log File", "text", "", "Optional JSONL send log file. Example: ./logs/send_log.jsonl."),
+    FieldSpec("log_rotate_max_mb", "Log Rotate MB", "int", 10, "Rotate the log file after this size in MB. Example: 10."),
+    FieldSpec("log_rotate_backups", "Log Backups", "int", 5, "How many rotated log files to keep. 0 disables rotation. Example: 5."),
     FieldSpec("history_file", "History File", "text", SEND_HISTORY_NAME, "JSONL history file used while sending. Example: ./logs/send_history.jsonl."),
 ]
 
@@ -64,8 +66,11 @@ LISTEN_FIELDS = [
     FieldSpec("listen_dm_only", "DM Only", "bool", False, "Only show direct messages while listening. Example: disabled."),
     FieldSpec("listen_group_only", "Group Only", "bool", False, "Only show group or broadcast traffic while listening. Example: disabled."),
     FieldSpec("listen_text_only", "Text Only", "bool", False, "Only show text packets while listening. Example: enabled."),
+    FieldSpec("listen_verbose", "Verbose Mode (--verbose-listen)", "bool", False, "Also print the full received record as JSON, similar to the receive log. This maps to the CLI switch --verbose-listen. Example: enabled."),
     FieldSpec("unattended", "Unattended", "bool", False, "Skip prompts such as serial port selection; all required values must come from cfg or CLI. Example: disabled."),
     FieldSpec("log_file", "Log File", "text", "", "Optional JSONL listen log file. Example: ./logs/listen_log.jsonl."),
+    FieldSpec("log_rotate_max_mb", "Log Rotate MB", "int", 10, "Rotate the log file after this size in MB. Example: 10."),
+    FieldSpec("log_rotate_backups", "Log Backups", "int", 5, "How many rotated log files to keep. 0 disables rotation. Example: 5."),
     FieldSpec("history_file", "History File", "text", LISTEN_HISTORY_NAME, "JSONL history file used while listening. Example: ./logs/listen_history.jsonl."),
     FieldSpec("history_filter", "History Filter", "text", "", "Filter used by history mode. Example: Naunhof."),
     FieldSpec("history_limit", "History Limit", "int", 20, "Number of recent history entries to show. Example: 50."),
@@ -80,7 +85,7 @@ AUTORESPONDER_FIELDS = [
     FieldSpec("autoresponder_message_mode", "Message Mode", "choice", "filter", "Which messages may trigger replies. Example: filter.", ("all", "filter")),
     FieldSpec("autoresponder_message_filter", "Message Filter", "text", "!Ping", "Message text filter. Without wildcards it works like contains. Example: !Ping."),
     FieldSpec("autoresponder_reply", "Reply Text", "text", "Pong", "Fixed direct-message reply text. Example: Pong."),
-    FieldSpec("autoresponder_reply_template", "Reply Template", "text", "Autoresponder: from %longname%: %message% / Message;  %answer%", "Optional template with trigger variables. Variables: %node_id%, %label%, %shortname%, %longname%, %message%, %channel_index%, %channel_name%, %scope%, %answer%. %answer% is replaced with the configured autoresponder_reply text. Example: Autoresponder: from %longname%: %message% / Message;  %answer%"),
+    FieldSpec("autoresponder_reply_template", "Reply Template", "text", "Autoresponder : %shortname%: %message% / Message:  %answer%", "Optional template with trigger variables. Variables: %node_id%, %label%, %shortname%, %longname%, %message%, %channel_index%, %channel_name%, %scope%, %answer%. %answer% is replaced with the configured autoresponder_reply text. Example: Autoresponder : %shortname%: %message% / Message:  %answer%"),
 ]
 
 
@@ -303,6 +308,10 @@ class ConfigLogic:
                     "",
                     "# Files",
                     f"log_file = {settings_map['log_file']}",
+                    "# Maximum size in MB before the log file rotates to .1, .2, ...",
+                    f"log_rotate_max_mb = {settings_map['log_rotate_max_mb']}",
+                    "# Number of rotated log files to keep. 0 disables rotation.",
+                    f"log_rotate_backups = {settings_map['log_rotate_backups']}",
                     f"history_file = {settings_map['history_file']}",
                     "",
                 ]
@@ -326,6 +335,8 @@ class ConfigLogic:
                     f"listen_dm_only = {settings_map['listen_dm_only']}",
                     f"listen_group_only = {settings_map['listen_group_only']}",
                     f"listen_text_only = {settings_map['listen_text_only']}",
+                    "# true also prints the full received record as JSON, similar to the receive log.",
+                    f"listen_verbose = {settings_map['listen_verbose']}",
                     "",
                     "# Runtime",
                     "# true skips interactive prompts such as port selection.",
@@ -333,6 +344,10 @@ class ConfigLogic:
                     "",
                     "# Files",
                     f"log_file = {settings_map['log_file']}",
+                    "# Maximum size in MB before the log file rotates to .1, .2, ...",
+                    f"log_rotate_max_mb = {settings_map['log_rotate_max_mb']}",
+                    "# Number of rotated log files to keep. 0 disables rotation.",
+                    f"log_rotate_backups = {settings_map['log_rotate_backups']}",
                     f"history_file = {settings_map['history_file']}",
                     f"history_filter = {settings_map['history_filter']}",
                     f"history_limit = {settings_map['history_limit']}",
@@ -366,7 +381,7 @@ class ConfigLogic:
                     "# Optional template with variables from the triggering message.",
                     "# Available variables: %node_id%, %label%, %shortname%, %longname%, %message%, %channel_index%, %channel_name%, %scope%, %answer%",
                     "# %answer% is replaced with the configured autoresponder_reply text.",
-                    "# Example: Autoresponder: from %longname%: %message% / Message;  %answer%",
+                    "# Example: Autoresponder : %shortname%: %message% / Message:  %answer%",
                     f"autoresponder_reply_template = {settings_map['autoresponder_reply_template']}",
                     "",
                 ]

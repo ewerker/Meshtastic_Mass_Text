@@ -8,6 +8,19 @@ The format is inspired by Keep a Changelog and uses project release tags where a
 
 - Reserved for upcoming changes before the next tagged release.
 
+## [0.7.2] - 2026-04-20
+
+### Added
+
+- Added live cfg hot-reload for listen, autoresponder, and send-derived autoresponder settings during listen mode.
+- Added listen verbose mode with optional full receive-record output and GUI support for the new flag.
+- Added log rotation settings for JSONL activity logs, including configurable size limits and backup counts.
+
+### Changed
+
+- Made verbose receive output visually quieter so it stays secondary to the main receive line.
+- Clarified the GUI label for verbose mode so it maps directly to `--verbose-listen`.
+
 ## [0.7.1] - 2026-04-20
 
 ### Added
