@@ -1,6 +1,6 @@
 # Meshtastic_Mass_Com
 
-English documentation. German version: [README.de.md](C:\Users\richt\Documents\Codex\2026-04-19-installiere-mir-phyton\README.de.md)
+English documentation. German version: [README.de.md](C:\Users\richt\Documents\Codex\Meshtastic_tool\README.de.md)
 
 Small Python utility for Meshtastic communication workflows: direct messages, group broadcasts, live listening, logging, history, and separate local config files for send and listen workflows.
 
@@ -24,26 +24,26 @@ Small Python utility for Meshtastic communication workflows: direct messages, gr
 
 ## Requirements
 
-- Windows
 - Python 3.14+
+- Any operating system supported by Python and the Meshtastic CLI stack
 - Python packages:
   - `meshtastic`
   - `pyserial`
 
 ## Installation
 
-```powershell
+```bash
 python -m pip install meshtastic pyserial
 ```
 
 ## Files
 
-- Script: [meshtastic_mass_com.py](C:\Users\richt\Documents\Codex\2026-04-19-installiere-mir-phyton\meshtastic_mass_com.py)
-- Send config: [meshtastic_mass_com.send.cfg](C:\Users\richt\Documents\Codex\2026-04-19-installiere-mir-phyton\meshtastic_mass_com.send.cfg)
-- Listen config: [meshtastic_mass_com.listen.cfg](C:\Users\richt\Documents\Codex\2026-04-19-installiere-mir-phyton\meshtastic_mass_com.listen.cfg)
-- Default send history: [meshtastic_mass_com.send.history.jsonl](C:\Users\richt\Documents\Codex\2026-04-19-installiere-mir-phyton\meshtastic_mass_com.send.history.jsonl)
-- Default listen history: [meshtastic_mass_com.listen.history.jsonl](C:\Users\richt\Documents\Codex\2026-04-19-installiere-mir-phyton\meshtastic_mass_com.listen.history.jsonl)
-- German documentation: [README.de.md](C:\Users\richt\Documents\Codex\2026-04-19-installiere-mir-phyton\README.de.md)
+- Script: [meshtastic_mass_com.py](C:\Users\richt\Documents\Codex\Meshtastic_tool\meshtastic_mass_com.py)
+- Send config: [meshtastic_mass_com.send.cfg](C:\Users\richt\Documents\Codex\Meshtastic_tool\meshtastic_mass_com.send.cfg)
+- Listen config: [meshtastic_mass_com.listen.cfg](C:\Users\richt\Documents\Codex\Meshtastic_tool\meshtastic_mass_com.listen.cfg)
+- Default send history: [meshtastic_mass_com.send.history.jsonl](C:\Users\richt\Documents\Codex\Meshtastic_tool\meshtastic_mass_com.send.history.jsonl)
+- Default listen history: [meshtastic_mass_com.listen.history.jsonl](C:\Users\richt\Documents\Codex\Meshtastic_tool\meshtastic_mass_com.listen.history.jsonl)
+- German documentation: [README.de.md](C:\Users\richt\Documents\Codex\Meshtastic_tool\README.de.md)
 
 ## First Run
 
@@ -58,14 +58,14 @@ Config selection rules:
 
 Example:
 
-```powershell
-python .\meshtastic_mass_com.py --mode send --port COM7 --channel-index 1 --ack --delay 1.5 --timeout 60 --target-mode select --filter "FR*" --selection "1,3" --retry-implicit-ack 1 --retry-nak 1 --message "Test message" --unattended --forcecfg
+```bash
+python ./meshtastic_mass_com.py --mode send --port <PORT> --channel-index 1 --ack --delay 1.5 --timeout 60 --target-mode select --filter "FR*" --selection "1,3" --retry-implicit-ack 1 --retry-nak 1 --message "Test message" --unattended --forcecfg
 ```
 
 After that, a plain run is usually enough:
 
-```powershell
-python .\meshtastic_mass_com.py
+```bash
+python ./meshtastic_mass_com.py
 ```
 
 ## Config File Behavior
@@ -95,26 +95,26 @@ Examples:
 
 - Clear send config:
 
-```powershell
-python .\meshtastic_mass_com.py --clear
+```bash
+python ./meshtastic_mass_com.py --clear
 ```
 
 - Clear listen config:
 
-```powershell
-python .\meshtastic_mass_com.py --listen --clear
+```bash
+python ./meshtastic_mass_com.py --listen --clear
 ```
 
 Store send settings in the send config:
 
-```powershell
-python .\meshtastic_mass_com.py --port COM7 --channel-index 1 --message "Hello" --forcecfg
+```bash
+python ./meshtastic_mass_com.py --port <PORT> --channel-index 1 --message "Hello" --forcecfg
 ```
 
 Store listen settings in the listen config:
 
-```powershell
-python .\meshtastic_mass_com.py --listen --port COM7 --listen-filter "FR*" --text-only --forcecfg
+```bash
+python ./meshtastic_mass_com.py --listen --port <PORT> --listen-filter "FR*" --text-only --forcecfg
 ```
 
 ## Command-Line Parameters
@@ -134,7 +134,7 @@ The most useful parameters are grouped below by purpose.
 
 ### Device and Channel
 
-- `--port COM7`
+- `--port <PORT>`
   - Select the serial port explicitly. If omitted, the script auto-detects ports or asks.
 - `--channel-index 0`
   - Select the channel used for direct messages or broadcasts.
@@ -188,9 +188,9 @@ The most useful parameters are grouped below by purpose.
 
 ### Files and Local History
 
-- `--log-file .\meshtastic_log.jsonl`
+- `--log-file ./meshtastic_log.jsonl`
   - Append JSONL activity records for send and listen mode.
-- `--history-file .\meshtastic_history.jsonl`
+- `--history-file ./meshtastic_history.jsonl`
   - Override the default local inbox/history file.
   - Default without override:
     - send/broadcast/history -> `meshtastic_mass_com.send.history.jsonl`
@@ -221,8 +221,8 @@ The script can send:
 
 Interactive mode:
 
-```powershell
-python .\meshtastic_mass_com.py
+```bash
+python ./meshtastic_mass_com.py
 ```
 
 You will be asked to choose:
@@ -233,13 +233,13 @@ You will be asked to choose:
 
 Direct parameter examples:
 
-```powershell
-python .\meshtastic_mass_com.py --target-mode all
-python .\meshtastic_mass_com.py --target-mode filter --filter "FR*"
-python .\meshtastic_mass_com.py --target-mode filter --filter "!55d8c9dc"
-python .\meshtastic_mass_com.py --target-mode filter --filter "Rico"
-python .\meshtastic_mass_com.py --target-mode select --filter "FR*"
-python .\meshtastic_mass_com.py --target-mode select --filter "FR*" --selection "1,3-4" --unattended
+```bash
+python ./meshtastic_mass_com.py --target-mode all
+python ./meshtastic_mass_com.py --target-mode filter --filter "FR*"
+python ./meshtastic_mass_com.py --target-mode filter --filter "!55d8c9dc"
+python ./meshtastic_mass_com.py --target-mode filter --filter "Rico"
+python ./meshtastic_mass_com.py --target-mode select --filter "FR*"
+python ./meshtastic_mass_com.py --target-mode select --filter "FR*" --selection "1,3-4" --unattended
 ```
 
 Filter rules:
@@ -252,20 +252,20 @@ Filter rules:
 
 You can store a default message in the config:
 
-```powershell
-python .\meshtastic_mass_com.py --message "Hello everyone" --forcecfg
+```bash
+python ./meshtastic_mass_com.py --message "Hello everyone" --forcecfg
 ```
 
 Run without prompts:
 
-```powershell
-python .\meshtastic_mass_com.py --unattended
+```bash
+python ./meshtastic_mass_com.py --unattended
 ```
 
 Typical unattended run:
 
-```powershell
-python .\meshtastic_mass_com.py --port COM7 --channel-index 1 --ack --target-mode filter --filter "FR*" --message "Hello everyone" --unattended --forcecfg
+```bash
+python ./meshtastic_mass_com.py --port <PORT> --channel-index 1 --ack --target-mode filter --filter "FR*" --message "Hello everyone" --unattended --forcecfg
 ```
 
 In unattended mode:
@@ -299,8 +299,8 @@ Retry controls:
 
 Example:
 
-```powershell
-python .\meshtastic_mass_com.py --port COM7 --channel-index 1 --ack --delay 1.5 --timeout 60 --retry-implicit-ack 1 --retry-nak 1
+```bash
+python ./meshtastic_mass_com.py --port <PORT> --channel-index 1 --ack --delay 1.5 --timeout 60 --retry-implicit-ack 1 --retry-nak 1
 ```
 
 ## Listen Mode
@@ -309,12 +309,12 @@ The script can also stay connected and print matching incoming packets live.
 
 Examples:
 
-```powershell
-python .\meshtastic_mass_com.py --mode listen
-python .\meshtastic_mass_com.py --listen --listen-filter "FR*"
-python .\meshtastic_mass_com.py --listen --listen-channel-index 1
-python .\meshtastic_mass_com.py --listen --dm-only
-python .\meshtastic_mass_com.py --listen --group-only --text-only
+```bash
+python ./meshtastic_mass_com.py --mode listen
+python ./meshtastic_mass_com.py --listen --listen-filter "FR*"
+python ./meshtastic_mass_com.py --listen --listen-channel-index 1
+python ./meshtastic_mass_com.py --listen --dm-only
+python ./meshtastic_mass_com.py --listen --group-only --text-only
 ```
 
 Listen filters:
@@ -338,9 +338,9 @@ Use `--log-file` to append JSONL records for send attempts and received packets.
 
 Examples:
 
-```powershell
-python .\meshtastic_mass_com.py --mode send --log-file .\meshtastic_log.jsonl
-python .\meshtastic_mass_com.py --listen --log-file .\meshtastic_log.jsonl
+```bash
+python ./meshtastic_mass_com.py --mode send --log-file ./meshtastic_log.jsonl
+python ./meshtastic_mass_com.py --listen --log-file ./meshtastic_log.jsonl
 ```
 
 ## Broadcast Mode
@@ -349,9 +349,9 @@ Use broadcast mode to send one message to the selected channel instead of a dire
 
 Examples:
 
-```powershell
-python .\meshtastic_mass_com.py --mode broadcast --port COM7 --channel-index 0 --message "Hello private group"
-python .\meshtastic_mass_com.py --broadcast --port COM7 --channel-index 1 --message "Hello LongFast"
+```bash
+python ./meshtastic_mass_com.py --mode broadcast --port <PORT> --channel-index 0 --message "Hello private group"
+python ./meshtastic_mass_com.py --broadcast --port <PORT> --channel-index 1 --message "Hello LongFast"
 ```
 
 Notes:
@@ -366,9 +366,9 @@ Use `--dry-run` to preview what would be sent without transmitting any packets.
 
 Examples:
 
-```powershell
-python .\meshtastic_mass_com.py --mode send --port COM7 --target-mode select --filter "FR*" --selection "1,3" --message "Preview only" --dry-run
-python .\meshtastic_mass_com.py --mode broadcast --port COM7 --channel-index 1 --message "Preview group post" --dry-run
+```bash
+python ./meshtastic_mass_com.py --mode send --port <PORT> --target-mode select --filter "FR*" --selection "1,3" --message "Preview only" --dry-run
+python ./meshtastic_mass_com.py --mode broadcast --port <PORT> --channel-index 1 --message "Preview group post" --dry-run
 ```
 
 ## History
@@ -384,11 +384,11 @@ Default separation:
 
 Examples:
 
-```powershell
-python .\meshtastic_mass_com.py --mode history
-python .\meshtastic_mass_com.py --history --history-limit 50
-python .\meshtastic_mass_com.py --history --history-filter "Naunhof"
-python .\meshtastic_mass_com.py --history --history-file .\logs\history.jsonl
+```bash
+python ./meshtastic_mass_com.py --mode history
+python ./meshtastic_mass_com.py --history --history-limit 50
+python ./meshtastic_mass_com.py --history --history-filter "Naunhof"
+python ./meshtastic_mass_com.py --history --history-file ./logs/history.jsonl
 ```
 
 ## Example Workflows
@@ -397,144 +397,148 @@ python .\meshtastic_mass_com.py --history --history-file .\logs\history.jsonl
 
 Use the script interactively and let it guide you:
 
-```powershell
-python .\meshtastic_mass_com.py
+```bash
+python ./meshtastic_mass_com.py
 ```
 
-Send a direct message to all known nodes on `COM7`:
+Send a direct message to all known nodes using your selected serial port:
 
-```powershell
-python .\meshtastic_mass_com.py --mode send --port COM7 --target-mode all --message "Hello all"
+```bash
+python ./meshtastic_mass_com.py --mode send --port <PORT> --target-mode all --message "Hello all"
 ```
 
-Listen on `COM7` and only show text traffic:
+Listen using your selected serial port and only show text traffic:
 
-```powershell
-python .\meshtastic_mass_com.py --listen --port COM7 --text-only
+```bash
+python ./meshtastic_mass_com.py --listen --port <PORT> --text-only
 ```
 
 Post once to the channel chat instead of sending DMs:
 
-```powershell
-python .\meshtastic_mass_com.py --mode broadcast --port COM7 --channel-index 1 --message "Hello group"
+```bash
+python ./meshtastic_mass_com.py --mode broadcast --port <PORT> --channel-index 1 --message "Hello group"
 ```
 
 ### Filtered Send Workflows
 
 Send only to nodes matching a callsign pattern:
 
-```powershell
-python .\meshtastic_mass_com.py --mode send --port COM7 --channel-index 1 --target-mode filter --filter "FR*" --message "Net check" --ack
+```bash
+python ./meshtastic_mass_com.py --mode send --port <PORT> --channel-index 1 --target-mode filter --filter "FR*" --message "Net check" --ack
 ```
 
 Send only to one exact node ID:
 
-```powershell
-python .\meshtastic_mass_com.py --mode send --port COM7 --channel-index 1 --target-mode filter --filter "!55d8c9dc" --message "Private test" --ack
+```bash
+python ./meshtastic_mass_com.py --mode send --port <PORT> --channel-index 1 --target-mode filter --filter "!55d8c9dc" --message "Private test" --ack
 ```
 
 Prefilter the list, then manually choose recipients:
 
-```powershell
-python .\meshtastic_mass_com.py --mode send --port COM7 --channel-index 1 --target-mode select --filter "FR*"
+```bash
+python ./meshtastic_mass_com.py --mode send --port <PORT> --channel-index 1 --target-mode select --filter "FR*"
 ```
 
 Run the same selection unattended with saved indexes:
 
-```powershell
-python .\meshtastic_mass_com.py --mode send --port COM7 --channel-index 1 --target-mode select --filter "FR*" --selection "1,3-5" --message "Scheduled ping" --unattended
+```bash
+python ./meshtastic_mass_com.py --mode send --port <PORT> --channel-index 1 --target-mode select --filter "FR*" --selection "1,3-5" --message "Scheduled ping" --unattended
 ```
 
 ### Reliable Delivery Workflows
 
 Request ACKs and retry once on implicit ACK or NAK:
 
-```powershell
-python .\meshtastic_mass_com.py --mode send --port COM7 --channel-index 1 --target-mode filter --filter "FR*" --message "Please confirm" --ack --retry-implicit-ack 1 --retry-nak 1 --delay 1.5 --timeout 60
+```bash
+python ./meshtastic_mass_com.py --mode send --port <PORT> --channel-index 1 --target-mode filter --filter "FR*" --message "Please confirm" --ack --retry-implicit-ack 1 --retry-nak 1 --delay 1.5 --timeout 60
 ```
 
 Use channel `0` for a small private group, but do not overwrite the saved cfg:
 
-```powershell
-python .\meshtastic_mass_com.py --mode send --port COM7 --channel-index 0 --target-mode select --selection "1-3" --message "Private check-in" --ack --protectcfg
+```bash
+python ./meshtastic_mass_com.py --mode send --port <PORT> --channel-index 0 --target-mode select --selection "1-3" --message "Private check-in" --ack --protectcfg
 ```
 
 ### Listen Workflows
 
 Listen only to LongFast traffic on channel `1`:
 
-```powershell
-python .\meshtastic_mass_com.py --listen --port COM7 --listen-channel-index 1
+```bash
+python ./meshtastic_mass_com.py --listen --port <PORT> --listen-channel-index 1
 ```
 
 Listen only to direct messages from nodes matching `FR*`:
 
-```powershell
-python .\meshtastic_mass_com.py --listen --port COM7 --listen-filter "FR*" --dm-only --text-only
+```bash
+python ./meshtastic_mass_com.py --listen --port <PORT> --listen-filter "FR*" --dm-only --text-only
 ```
 
 Listen only to group traffic and keep non-text packets visible:
 
-```powershell
-python .\meshtastic_mass_com.py --listen --port COM7 --group-only
+```bash
+python ./meshtastic_mass_com.py --listen --port <PORT> --group-only
 ```
 
 ### Logging Workflows
 
 Send with ACK handling and write all attempts to a JSONL log:
 
-```powershell
-python .\meshtastic_mass_com.py --mode send --port COM7 --channel-index 1 --target-mode filter --filter "FR*" --message "Logged test" --ack --retry-implicit-ack 1 --retry-nak 1 --log-file .\logs\send_log.jsonl
+```bash
+python ./meshtastic_mass_com.py --mode send --port <PORT> --channel-index 1 --target-mode filter --filter "FR*" --message "Logged test" --ack --retry-implicit-ack 1 --retry-nak 1 --log-file ./logs/send_log.jsonl
 ```
 
 Listen continuously and append all matching packets to a shared log:
 
-```powershell
-python .\meshtastic_mass_com.py --listen --port COM7 --text-only --log-file .\logs\listen_log.jsonl
+```bash
+python ./meshtastic_mass_com.py --listen --port <PORT> --text-only --log-file ./logs/listen_log.jsonl
 ```
 
 Override the default listen history file while listening:
 
-```powershell
-python .\meshtastic_mass_com.py --listen --port COM7 --text-only --history-file .\logs\history.jsonl
+```bash
+python ./meshtastic_mass_com.py --listen --port <PORT> --text-only --history-file ./logs/history.jsonl
 ```
 
 ### Config-Centered Workflows
 
 Create or refresh a reusable unattended profile:
 
-```powershell
-python .\meshtastic_mass_com.py --mode send --port COM7 --channel-index 1 --target-mode select --filter "FR*" --selection "1,2" --message "Routine message" --ack --retry-implicit-ack 1 --retry-nak 1 --log-file .\logs\routine.jsonl --unattended --forcecfg
+```bash
+python ./meshtastic_mass_com.py --mode send --port <PORT> --channel-index 1 --target-mode select --filter "FR*" --selection "1,2" --message "Routine message" --ack --retry-implicit-ack 1 --retry-nak 1 --log-file ./logs/routine.jsonl --unattended --forcecfg
 ```
 
 Run later with only the saved config:
 
-```powershell
-python .\meshtastic_mass_com.py
+```bash
+python ./meshtastic_mass_com.py
 ```
 
 Listen with temporary settings but keep the saved config untouched:
 
-```powershell
-python .\meshtastic_mass_com.py --listen --port COM7 --listen-filter "FR*" --dm-only --text-only --protectcfg
+```bash
+python ./meshtastic_mass_com.py --listen --port <PORT> --listen-filter "FR*" --dm-only --text-only --protectcfg
 ```
 
 Preview a broadcast without changing the config or transmitting:
 
-```powershell
-python .\meshtastic_mass_com.py --mode broadcast --port COM7 --channel-index 0 --message "Test group" --dry-run --protectcfg
+```bash
+python ./meshtastic_mass_com.py --mode broadcast --port <PORT> --channel-index 0 --message "Test group" --dry-run --protectcfg
 ```
 
 ## Help
 
 Use the built-in CLI help for the complete current parameter list:
 
-```powershell
-python .\meshtastic_mass_com.py --help
+```bash
+python ./meshtastic_mass_com.py --help
 ```
 
 ## Notes
 
 - This tool is intended for controlled direct-message workflows.
 - Please respect local radio regulations, duty-cycle limits, and other operators on the mesh.
+
+
+
+
 

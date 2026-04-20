@@ -1,7 +1,6 @@
 import configparser
 from dataclasses import dataclass
 from pathlib import Path
-import sys
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
@@ -25,7 +24,7 @@ class FieldSpec:
 
 
 SEND_FIELDS = [
-    FieldSpec("port", "Serial Port", "text", "COM7", "Serial port used for sending. Example: COM7."),
+    FieldSpec("port", "Serial Port", "text", "", "Serial port used for sending. Examples: /dev/ttyUSB0, /dev/ttyACM0, or COM7."),
     FieldSpec("channel_index", "Channel Index", "int", 1, "Channel used for direct messages or broadcasts. Example: 1."),
     FieldSpec("message", "Message", "text", "Hello Mesh", "Message text for send or broadcast mode. Example: Hello Mesh."),
     FieldSpec("target_mode", "Target Mode", "choice", "all", "Recipient selection for send mode. Example: all or filter.", ("all", "filter", "select")),
@@ -40,21 +39,21 @@ SEND_FIELDS = [
     FieldSpec("retry_nak", "Retry NAK", "int", 1, "Retry count after a NAK result. Example: 1."),
     FieldSpec("dry_run", "Dry Run", "bool", False, "Preview only, do not transmit. Example: disabled."),
     FieldSpec("unattended", "Unattended", "bool", False, "Skip prompts; all required values must come from CLI or cfg. Example: disabled."),
-    FieldSpec("log_file", "Log File", "text", "", "Optional JSONL send log file. Example: logs\\send_log.jsonl."),
-    FieldSpec("history_file", "History File", "text", "", "Optional JSONL history file used while sending. Example: logs\\history.jsonl."),
+    FieldSpec("log_file", "Log File", "text", "", "Optional JSONL send log file. Example: ./logs/send_log.jsonl."),
+    FieldSpec("history_file", "History File", "text", "", "Optional JSONL history file used while sending. Example: ./logs/history.jsonl."),
 ]
 
 
 LISTEN_FIELDS = [
-    FieldSpec("port", "Serial Port", "text", "COM7", "Serial port used for listening. Example: COM7."),
+    FieldSpec("port", "Serial Port", "text", "", "Serial port used for listening. Examples: /dev/ttyUSB0, /dev/ttyACM0, or COM7."),
     FieldSpec("timeout", "Timeout (s)", "int", 30, "Connection timeout for the listen workflow. Example: 30."),
     FieldSpec("listen_filter", "Listen Filter", "text", "*", "Only show packets whose sender matches this filter. Example: FR*."),
     FieldSpec("listen_channel_index", "Listen Channel", "optional_int", "", "Only show packets for this channel index. Leave blank for all. Example: 1."),
     FieldSpec("listen_dm_only", "DM Only", "bool", False, "Only show direct messages while listening. Example: disabled."),
     FieldSpec("listen_group_only", "Group Only", "bool", False, "Only show group or broadcast traffic while listening. Example: disabled."),
     FieldSpec("listen_text_only", "Text Only", "bool", False, "Only show text packets while listening. Example: enabled."),
-    FieldSpec("log_file", "Log File", "text", "", "Optional JSONL listen log file. Example: logs\\listen_log.jsonl."),
-    FieldSpec("history_file", "History File", "text", "", "Optional JSONL history file used while listening. Example: logs\\listen_history.jsonl."),
+    FieldSpec("log_file", "Log File", "text", "", "Optional JSONL listen log file. Example: ./logs/listen_log.jsonl."),
+    FieldSpec("history_file", "History File", "text", "", "Optional JSONL history file used while listening. Example: ./logs/listen_history.jsonl."),
     FieldSpec("history_filter", "History Filter", "text", "", "Filter used by history mode. Example: Naunhof."),
     FieldSpec("history_limit", "History Limit", "int", 20, "Number of recent history entries to show. Example: 50."),
 ]
@@ -209,7 +208,7 @@ class ConfigLogic:
                     "mode = send",
                     "",
                     "# Connection",
-                    "# Serial port such as COM7.",
+                    "# Serial port such as /dev/ttyUSB0, /dev/ttyACM0, or COM7. Leave empty to auto-detect or ask.",
                     f"port = {settings_map['port']}",
                     "# Channel index for direct messages or broadcasts.",
                     f"channel_index = {settings_map['channel_index']}",
@@ -246,7 +245,7 @@ class ConfigLogic:
                     "mode = listen",
                     "",
                     "# Connection",
-                    "# Serial port such as COM7.",
+                    "# Serial port such as /dev/ttyUSB0, /dev/ttyACM0, or COM7. Leave empty to auto-detect or ask.",
                     f"port = {settings_map['port']}",
                     f"timeout = {settings_map['timeout']}",
                     "",
@@ -272,14 +271,14 @@ class ConfigLogic:
 
     @staticmethod
     def example_command(family: str, script_path: Path) -> str:
-        python_exe = Path(sys.executable)
+        script_name = f"./{script_path.name}"
         if family == "listen":
             return (
-                f'& "{python_exe}" "{script_path}" --listen --port COM7 --listen-filter "FR*" '
+                f'python {script_name} --listen --port <PORT> --listen-filter "FR*" '
                 '--listen-channel-index 1 --dm-only --text-only --forcecfg'
             )
         return (
-            f'& "{python_exe}" "{script_path}" --mode send --port COM7 --channel-index 1 --ack '
+            f'python {script_name} --mode send --port <PORT> --channel-index 1 --ack '
             '--target-mode all --message "Hello Mesh" --timeout 60 --forcecfg'
         )
 

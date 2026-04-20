@@ -47,6 +47,33 @@ DEFAULT_SETTINGS = {
     "history_filter": "",
     "history_limit": 20,
 }
+SETTING_TYPES = {
+    "mode": "str",
+    "port": "str",
+    "channel_index": "int",
+    "ack": "bool",
+    "include_unmessageable": "bool",
+    "delay": "float",
+    "timeout": "int",
+    "final_wait": "float",
+    "target_mode": "str",
+    "target_filter": "str",
+    "selection": "str",
+    "message": "str",
+    "unattended": "bool",
+    "log_file": "str",
+    "listen_filter": "str",
+    "listen_channel_index": "optional_int",
+    "listen_dm_only": "bool",
+    "listen_group_only": "bool",
+    "listen_text_only": "bool",
+    "retry_implicit_ack": "int",
+    "retry_nak": "int",
+    "dry_run": "bool",
+    "history_file": "str",
+    "history_filter": "str",
+    "history_limit": "int",
+}
 
 ANSI_RESET = "\033[0m"
 ANSI_BOLD = "\033[1m"
@@ -130,7 +157,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--port",
         default=None,
-        help="Serial port of the Meshtastic device, for example COM7. If omitted, ports are auto-detected or selected interactively.",
+        help="Serial port of the Meshtastic device, for example COM7, /dev/ttyUSB0, or /dev/ttyACM0. If omitted, ports are auto-detected or selected interactively.",
     )
     parser.add_argument(
         "--channel-index",
@@ -295,19 +322,17 @@ def example_command() -> str:
 
 
 def example_command_for_family(config_family: str) -> str:
-    python_exe = Path(sys.executable)
-    script_path = SCRIPT_PATH
     if config_family == "listen":
         return (
-            f'& "{python_exe}" "{script_path}" --listen --port COM7 --listen-filter "FR*" '
-            '--listen-channel-index 1 --dm-only --text-only --log-file ".\\listen_log.jsonl" '
-            '--history-file ".\\meshtastic_mass_com.listen.history.jsonl" --unattended --forcecfg'
+            'python ./meshtastic_mass_com.py --listen --port <PORT> --listen-filter "FR*" '
+            '--listen-channel-index 1 --dm-only --text-only --log-file "./listen_log.jsonl" '
+            '--history-file "./meshtastic_mass_com.listen.history.jsonl" --unattended --forcecfg'
         )
     return (
-        f'& "{python_exe}" "{script_path}" --mode send --port COM7 --channel-index 1 --ack '
+        'python ./meshtastic_mass_com.py --mode send --port <PORT> --channel-index 1 --ack '
         '--delay 1.5 --timeout 60 --target-mode select --filter "FR*" --selection "1,3" '
         '--retry-implicit-ack 1 --retry-nak 1 --message "Test message" --unattended '
-        '--history-file ".\\meshtastic_mass_com.send.history.jsonl" --forcecfg'
+        '--history-file "./meshtastic_mass_com.send.history.jsonl" --forcecfg'
     )
 
 
@@ -326,49 +351,71 @@ def history_path_for_family(config_family: str) -> Path:
 
 
 def load_config(config_path: Path) -> dict:
+    settings, _sources = load_config_with_sources(config_path)
+    return settings
+
+
+def parse_config_value(section: configparser.SectionProxy, key: str, value_type: str):
+    if value_type == "bool":
+        return section.getboolean(key)
+    if value_type == "int":
+        return section.getint(key)
+    if value_type == "float":
+        return section.getfloat(key)
+    if value_type == "optional_int":
+        raw = section.get(key, fallback="")
+        return int(raw) if raw else None
+    return section.get(key)
+
+
+def load_config_with_sources(config_path: Path) -> tuple[dict, dict]:
     settings = DEFAULT_SETTINGS.copy()
+    sources = {key: "default" for key in DEFAULT_SETTINGS}
     if not config_path.exists():
-        return settings
+        return settings, sources
 
     parser = configparser.ConfigParser()
     parser.read(config_path, encoding="utf-8")
     if not parser.has_section(CONFIG_SECTION):
-        return settings
+        return settings, sources
 
     section = parser[CONFIG_SECTION]
-    settings["mode"] = section.get("mode", fallback=settings["mode"])
-    settings["port"] = section.get("port", fallback=settings["port"])
-    settings["channel_index"] = section.getint("channel_index", fallback=settings["channel_index"])
-    settings["ack"] = section.getboolean("ack", fallback=settings["ack"])
-    settings["include_unmessageable"] = section.getboolean(
-        "include_unmessageable", fallback=settings["include_unmessageable"]
-    )
-    settings["delay"] = section.getfloat("delay", fallback=settings["delay"])
-    settings["timeout"] = section.getint("timeout", fallback=settings["timeout"])
-    settings["final_wait"] = section.getfloat("final_wait", fallback=settings["final_wait"])
-    settings["target_mode"] = section.get("target_mode", fallback=settings["target_mode"])
-    settings["target_filter"] = section.get("target_filter", fallback=settings["target_filter"])
-    settings["selection"] = section.get("selection", fallback=settings["selection"])
-    settings["message"] = section.get("message", fallback=settings["message"])
-    settings["unattended"] = section.getboolean("unattended", fallback=settings["unattended"])
-    settings["log_file"] = section.get("log_file", fallback=settings["log_file"])
-    settings["listen_filter"] = section.get("listen_filter", fallback=settings["listen_filter"])
-    listen_channel_raw = section.get("listen_channel_index", fallback="")
-    settings["listen_channel_index"] = int(listen_channel_raw) if listen_channel_raw else None
-    settings["listen_dm_only"] = section.getboolean("listen_dm_only", fallback=settings["listen_dm_only"])
-    settings["listen_group_only"] = section.getboolean(
-        "listen_group_only", fallback=settings["listen_group_only"]
-    )
-    settings["listen_text_only"] = section.getboolean("listen_text_only", fallback=settings["listen_text_only"])
-    settings["retry_implicit_ack"] = section.getint(
-        "retry_implicit_ack", fallback=settings["retry_implicit_ack"]
-    )
-    settings["retry_nak"] = section.getint("retry_nak", fallback=settings["retry_nak"])
-    settings["dry_run"] = section.getboolean("dry_run", fallback=settings["dry_run"])
-    settings["history_file"] = section.get("history_file", fallback=settings["history_file"])
-    settings["history_filter"] = section.get("history_filter", fallback=settings["history_filter"])
-    settings["history_limit"] = section.getint("history_limit", fallback=settings["history_limit"])
-    return settings
+    for key, value_type in SETTING_TYPES.items():
+        if section.get(key, fallback=None) is None:
+            continue
+        settings[key] = parse_config_value(section, key, value_type)
+        sources[key] = "cfg"
+    return settings, sources
+
+
+def format_source_label(source: str) -> str:
+    colors = {
+        "cmd": "cyan",
+        "cfg": "green",
+        "default": "yellow",
+        "auto": "magenta",
+        "prompt": "blue",
+    }
+    return colorize(f"[{source}]", colors.get(source, "white"), bold=True)
+
+
+def format_effective_value(value) -> str:
+    if value is None or value == "":
+        return "<empty>"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
+def print_effective_parameters(settings: dict, mode_label: str, fields: list[tuple[str, object]]) -> None:
+    print()
+    print(colorize(f"Effective parameters for {mode_label}:", "cyan", bold=True))
+    config_path = settings.get("__config_path")
+    if config_path:
+        print(f"  cfg file: {config_path}")
+    for key, value in fields:
+        source = settings.get("__sources", {}).get(key, "default")
+        print(f"  {format_source_label(source)} {key} = {format_effective_value(value)}")
 
 
 def config_file_values(settings: dict) -> dict[str, str]:
@@ -459,7 +506,7 @@ def render_config_text(settings: dict, config_path: Path) -> str:
             f"mode = {values['mode']}",
             "",
             "# Connection",
-            "# Serial port such as COM7. Leave empty to auto-detect or ask.",
+            "# Serial port such as COM7, /dev/ttyUSB0, or /dev/ttyACM0. Leave empty to auto-detect or ask.",
             f"port = {values['port']}",
             "# Channel index for direct messages or broadcasts, usually 0 or 1.",
             f"channel_index = {values['channel_index']}",
@@ -586,10 +633,12 @@ def resolve_settings(args: argparse.Namespace) -> dict | None:
         print(example_command_for_family(config_family))
         return None
 
-    settings = load_config(config_path)
+    settings, sources = load_config_with_sources(config_path)
 
     if cli_overrides:
         settings.update(cli_overrides)
+        for key in cli_overrides:
+            sources[key] = "cmd"
         if should_write_cfg:
             save_config(settings, config_path)
             if config_exists:
@@ -601,6 +650,9 @@ def resolve_settings(args: argparse.Namespace) -> dict | None:
     elif config_exists:
         print(colorize(f"Using configuration from: {config_path}", "cyan"))
 
+    settings["__sources"] = sources
+    settings["__config_path"] = config_path
+    settings["__config_family"] = config_family
     return settings
 
 
@@ -933,10 +985,8 @@ def select_recipients(
     return selected, selection_description
 
 
-def confirm_send(message: str, recipients: list[dict], target_description: str, unattended: bool = False) -> bool:
+def confirm_send(_message: str, recipients: list[dict], _target_description: str, unattended: bool = False) -> bool:
     print()
-    print(f'Message: "{message}"')
-    print(f"Target mode: {target_description}")
     print(f"Recipients: {len(recipients)}")
     for recipient in recipients:
         print(f"  - {format_recipient_summary(recipient)}")
@@ -1341,6 +1391,25 @@ def run_listen_mode(interface: SerialInterface, settings: dict) -> int:
     history_path = resolve_history_path(settings["history_file"], "listen")
     received_count = 0
 
+    print_effective_parameters(
+        settings,
+        "listen",
+        [
+            ("port", settings["port"]),
+            ("timeout", settings["timeout"]),
+            ("listen_filter", settings["listen_filter"]),
+            ("listen_channel_index", settings["listen_channel_index"]),
+            ("listen_dm_only", settings["listen_dm_only"]),
+            ("listen_group_only", settings["listen_group_only"]),
+            ("listen_text_only", settings["listen_text_only"]),
+            ("unattended", settings["unattended"]),
+            ("log_file", log_path if settings["log_file"] else "<disabled>"),
+            ("history_file", history_path),
+            ("history_filter", settings["history_filter"]),
+            ("history_limit", settings["history_limit"]),
+        ],
+    )
+
     print("Listen mode started. Press Ctrl+C to stop.")
     if settings["listen_filter"]:
         print(f"Sender filter: {settings['listen_filter']}")
@@ -1380,13 +1449,12 @@ def run_listen_mode(interface: SerialInterface, settings: dict) -> int:
             pass
 
 
-def confirm_broadcast(message: str, channel_index: int, channel_label: str | None, unattended: bool = False) -> bool:
+def confirm_broadcast(_message: str, channel_index: int, channel_label: str | None, unattended: bool = False) -> bool:
     print()
-    print(f'Message: "{message}"')
     if channel_label:
-        print(f"Broadcast channel: {channel_index}:{channel_label}")
+        print(f"Broadcast destination: {channel_index}:{channel_label}")
     else:
-        print(f"Broadcast channel: {channel_index}")
+        print(f"Broadcast destination: {channel_index}")
     print()
     if unattended:
         print("Unattended mode is active, broadcasting without confirmation.")
@@ -1433,10 +1501,28 @@ def run_broadcast_mode(interface: SerialInterface, settings: dict) -> int:
     except ValueError as exc:
         print(colorize(str(exc), "red"))
         return 1
+    if message != settings["message"]:
+        settings["message"] = message
+        settings["__sources"]["message"] = "prompt"
 
     log_path = resolve_log_path(settings["log_file"])
     history_path = resolve_history_path(settings["history_file"], "send")
     channel_label = channel_name(interface, settings["channel_index"])
+
+    print_effective_parameters(
+        settings,
+        "broadcast",
+        [
+            ("port", settings["port"]),
+            ("channel_index", settings["channel_index"]),
+            ("message", settings["message"]),
+            ("dry_run", settings["dry_run"]),
+            ("unattended", settings["unattended"]),
+            ("final_wait", settings["final_wait"]),
+            ("log_file", log_path if settings["log_file"] else "<disabled>"),
+            ("history_file", history_path),
+        ],
+    )
 
     if settings["ack"]:
         print(colorize("Broadcast mode ignores --ack because broadcast messages do not produce a single direct ACK path.", "yellow"))
@@ -1548,10 +1634,37 @@ def run_send_mode(interface: SerialInterface, settings: dict) -> int:
     except ValueError as exc:
         print(colorize(str(exc), "red"))
         return 1
+    if message != settings["message"]:
+        settings["message"] = message
+        settings["__sources"]["message"] = "prompt"
 
     log_path = resolve_log_path(settings["log_file"])
     history_path = resolve_history_path(settings["history_file"], "send")
     recipients = collect_recipients(interface, settings["include_unmessageable"])
+
+    print_effective_parameters(
+        settings,
+        "send",
+        [
+            ("port", settings["port"]),
+            ("channel_index", settings["channel_index"]),
+            ("message", settings["message"]),
+            ("target_mode", settings["target_mode"]),
+            ("target_filter", settings["target_filter"]),
+            ("selection", settings["selection"]),
+            ("ack", settings["ack"]),
+            ("include_unmessageable", settings["include_unmessageable"]),
+            ("delay", settings["delay"]),
+            ("timeout", settings["timeout"]),
+            ("final_wait", settings["final_wait"]),
+            ("retry_implicit_ack", settings["retry_implicit_ack"]),
+            ("retry_nak", settings["retry_nak"]),
+            ("dry_run", settings["dry_run"]),
+            ("unattended", settings["unattended"]),
+            ("log_file", log_path if settings["log_file"] else "<disabled>"),
+            ("history_file", history_path),
+        ],
+    )
 
     if not recipients:
         print(colorize("No matching known nodes found.", "red"))
@@ -1775,6 +1888,9 @@ def main() -> int:
     interface = None
     try:
         port = resolve_port(settings["port"] or None, settings["unattended"])
+        if not settings["port"]:
+            settings["port"] = port
+            settings["__sources"]["port"] = "auto"
         print(colorize(f"Connecting via {port} ...", "cyan"))
         interface = SerialInterface(devPath=port, timeout=settings["timeout"])
 
