@@ -775,6 +775,31 @@ def save_config(settings: dict, config_path: Path, config_family: str | None = N
         config_file.write(render_config_text(settings, resolved_family))
 
 
+def create_default_config(config_family: str) -> Path:
+    config_path = config_path_for_family(config_family)
+    save_config(defaults_for_family(config_family), config_path, config_family)
+    print(colorize(f"Configuration created from defaults: {config_path}", "green"))
+    return config_path
+
+
+def ensure_missing_configs(args: argparse.Namespace) -> None:
+    no_cli_args = len(sys.argv) == 1
+    if no_cli_args:
+        for config_family in ("send", "listen", "autoresponder"):
+            config_path = config_path_for_family(config_family)
+            if not config_path.exists():
+                create_default_config(config_family)
+        return
+
+    config_family = determine_config_family(args)
+    active_config_path = config_path_for_family(config_family)
+    if not active_config_path.exists():
+        create_default_config(config_family)
+
+    if config_family == "listen" and not AUTORESPONDER_CONFIG_PATH.exists():
+        create_default_config("autoresponder")
+
+
 def rendered_config_text(settings: dict, config_path: Path, config_family: str | None = None) -> str:
     resolved_family = config_family or ("listen" if config_path == LISTEN_CONFIG_PATH else "autoresponder" if config_path == AUTORESPONDER_CONFIG_PATH else "send")
     return render_config_text(settings, resolved_family)
@@ -2291,6 +2316,8 @@ def main() -> int:
     if args.list_ports:
         print_available_ports(get_available_ports())
         return 0
+
+    ensure_missing_configs(args)
 
     settings = resolve_settings(args)
     if settings is None:
