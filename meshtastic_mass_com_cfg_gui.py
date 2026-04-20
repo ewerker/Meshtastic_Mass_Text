@@ -5,6 +5,8 @@ SPDX-License-Identifier: MIT
 """
 
 import configparser
+import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 import tkinter as tk
@@ -72,11 +74,13 @@ LISTEN_FIELDS = [
 
 AUTORESPONDER_FIELDS = [
     FieldSpec("autoresponder", "Enabled", "bool", False, "Enable the autoresponder by default for listen mode. Example: enabled."),
+    FieldSpec("autoresponder_unicast", "Unicast Mode", "bool", False, "Send direct replies to the recipients selected by the send cfg instead of only back to the triggering sender. Example: enabled."),
     FieldSpec("autoresponder_sender_mode", "Sender Mode", "choice", "all", "Which senders may trigger replies. Example: filter.", ("all", "filter")),
     FieldSpec("autoresponder_sender_filter", "Sender Filter", "text", "JR*", "Sender filter for node ID, short name, or long name. Example: JR or JR*."),
     FieldSpec("autoresponder_message_mode", "Message Mode", "choice", "filter", "Which messages may trigger replies. Example: filter.", ("all", "filter")),
     FieldSpec("autoresponder_message_filter", "Message Filter", "text", "!Ping", "Message text filter. Without wildcards it works like contains. Example: !Ping."),
     FieldSpec("autoresponder_reply", "Reply Text", "text", "Pong", "Fixed direct-message reply text. Example: Pong."),
+    FieldSpec("autoresponder_reply_template", "Reply Template", "text", "Autoresponder: from %longname%: %message% / Message;  %answer%", "Optional template with trigger variables. Variables: %node_id%, %label%, %shortname%, %longname%, %message%, %channel_index%, %channel_name%, %scope%, %answer%. %answer% is replaced with the configured autoresponder_reply text. Example: Autoresponder: from %longname%: %message% / Message;  %answer%"),
 ]
 
 
@@ -156,7 +160,7 @@ class ConfigLogic:
 
     @staticmethod
     def load_section(path: Path, section_name: str) -> dict:
-        parser = configparser.ConfigParser()
+        parser = configparser.ConfigParser(interpolation=None)
         parser.read(path, encoding="utf-8")
         if not parser.has_section(section_name):
             return {}
@@ -341,6 +345,8 @@ class ConfigLogic:
                     "# Workflow",
                     "# Enable or disable the autoresponder by default for listen mode.",
                     f"autoresponder = {settings_map['autoresponder']}",
+                    "# true sends direct replies to the recipients selected by the send cfg instead of only back to the triggering sender.",
+                    f"autoresponder_unicast = {settings_map['autoresponder_unicast']}",
                     "",
                     "# Sender matching",
                     "# all = accept every sender, filter = only matching senders.",
@@ -357,6 +363,11 @@ class ConfigLogic:
                     "# Reply",
                     "# Fixed direct-message reply text sent back to the sender.",
                     f"autoresponder_reply = {settings_map['autoresponder_reply']}",
+                    "# Optional template with variables from the triggering message.",
+                    "# Available variables: %node_id%, %label%, %shortname%, %longname%, %message%, %channel_index%, %channel_name%, %scope%, %answer%",
+                    "# %answer% is replaced with the configured autoresponder_reply text.",
+                    "# Example: Autoresponder: from %longname%: %message% / Message;  %answer%",
+                    f"autoresponder_reply_template = {settings_map['autoresponder_reply_template']}",
                     "",
                 ]
             )
@@ -397,6 +408,15 @@ class ConfigLogic:
         return path
 
 
+def resolve_console_python() -> str:
+    executable = Path(sys.executable)
+    if executable.name.lower() == "pythonw.exe":
+        python_exe = executable.with_name("python.exe")
+        if python_exe.exists():
+            return str(python_exe)
+    return str(executable)
+
+
 class MeshtasticConfigGUI:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
@@ -421,6 +441,7 @@ class MeshtasticConfigGUI:
         self.preview_notebook = None
         self.load_button = None
         self.save_button = None
+        self._active_scroll_canvas = None
 
         self._build_layout()
         self.load_existing_configs(initial=True)
@@ -467,17 +488,19 @@ class MeshtasticConfigGUI:
         self.form_notebook = ttk.Notebook(form_container)
         self.form_notebook.grid(row=0, column=0, sticky="nsew")
 
-        send_tab = ttk.Frame(self.form_notebook, padding=10)
-        listen_tab = ttk.Frame(self.form_notebook, padding=10)
-        autoresponder_tab = ttk.Frame(self.form_notebook, padding=10)
+        send_tab, send_content = self._create_scrollable_tab(self.form_notebook)
+        listen_tab, listen_content = self._create_scrollable_tab(self.form_notebook)
+        autoresponder_tab, autoresponder_content = self._create_scrollable_tab(self.form_notebook)
         self.form_notebook.add(send_tab, text="Send CFG")
         self.form_notebook.add(listen_tab, text="Listen CFG")
         self.form_notebook.add(autoresponder_tab, text="Autoresponder CFG")
         self.form_notebook.bind("<<NotebookTabChanged>>", self._on_form_tab_changed)
 
-        self._build_form(send_tab, self.send_specs, self.send_vars, columns=2)
-        self._build_form(listen_tab, self.listen_specs, self.listen_vars, columns=2)
-        self._build_form(autoresponder_tab, self.autoresponder_specs, self.autoresponder_vars, columns=2)
+        self._build_tab_actions(send_content, [("Start Send Script", self.start_send_script)], columns=2)
+        self._build_tab_actions(listen_content, [("Start Listen Script", self.start_listen_script)], columns=2)
+        self._build_form(send_content, self.send_specs, self.send_vars, columns=2)
+        self._build_form(listen_content, self.listen_specs, self.listen_vars, columns=2)
+        self._build_form(autoresponder_content, self.autoresponder_specs, self.autoresponder_vars, columns=2)
 
         self.preview_notebook = ttk.Notebook(preview_container)
         self.preview_notebook.grid(row=0, column=0, sticky="nsew")
@@ -499,11 +522,55 @@ class MeshtasticConfigGUI:
         ttk.Label(status_bar, textvariable=self.status_var).grid(row=0, column=0, sticky="w")
         self._update_action_labels()
 
+    def _create_scrollable_tab(self, notebook: ttk.Notebook) -> tuple[ttk.Frame, ttk.Frame]:
+        tab = ttk.Frame(notebook)
+        tab.columnconfigure(0, weight=1)
+        tab.rowconfigure(0, weight=1)
+
+        canvas = tk.Canvas(tab, highlightthickness=0, borderwidth=0)
+        scrollbar = ttk.Scrollbar(tab, orient="vertical", command=canvas.yview)
+        content = ttk.Frame(canvas, padding=10)
+        content_window = canvas.create_window((0, 0), window=content, anchor="nw")
+
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.grid(row=0, column=0, sticky="nsew")
+        scrollbar.grid(row=0, column=1, sticky="ns")
+
+        content.bind(
+            "<Configure>",
+            lambda _event, current_canvas=canvas: current_canvas.configure(scrollregion=current_canvas.bbox("all")),
+        )
+        canvas.bind(
+            "<Configure>",
+            lambda event, current_canvas=canvas, window_id=content_window: current_canvas.itemconfigure(window_id, width=event.width),
+        )
+        content.bind("<Enter>", lambda _event, current_canvas=canvas: self._set_active_scroll_canvas(current_canvas))
+        content.bind("<Leave>", lambda _event: self._set_active_scroll_canvas(None))
+        canvas.bind("<Enter>", lambda _event, current_canvas=canvas: self._set_active_scroll_canvas(current_canvas))
+        canvas.bind("<Leave>", lambda _event: self._set_active_scroll_canvas(None))
+        return tab, content
+
+    def _set_active_scroll_canvas(self, canvas: tk.Canvas | None) -> None:
+        self._active_scroll_canvas = canvas
+
+    def _on_mousewheel(self, event) -> None:
+        if self._active_scroll_canvas is None:
+            return
+        if hasattr(event, "delta") and event.delta:
+            steps = -1 if event.delta > 0 else 1
+        elif getattr(event, "num", None) == 4:
+            steps = -1
+        elif getattr(event, "num", None) == 5:
+            steps = 1
+        else:
+            return
+        self._active_scroll_canvas.yview_scroll(steps, "units")
+
     def _build_form(self, parent: ttk.Frame, specs: list[FieldSpec], variables: dict[str, tk.Variable], columns: int) -> None:
         for column in range(columns):
             parent.columnconfigure(column, weight=1)
 
-        row = 0
+        row = parent.grid_size()[1]
         column = 0
         for spec in specs:
             frame = ttk.LabelFrame(parent, text=spec.label, padding=8)
@@ -520,6 +587,15 @@ class MeshtasticConfigGUI:
             if column >= columns:
                 column = 0
                 row += 1
+
+    def _build_tab_actions(self, parent: ttk.Frame, actions: list[tuple[str, object]], columns: int) -> None:
+        if not actions:
+            return
+        next_row = parent.grid_size()[1]
+        action_frame = ttk.Frame(parent, padding=(6, 0, 6, 8))
+        action_frame.grid(row=next_row, column=0, columnspan=columns, sticky="ew")
+        for index, (label, callback) in enumerate(actions):
+            ttk.Button(action_frame, text=label, command=callback).grid(row=0, column=index, padx=(0, 8), sticky="w")
 
     def _create_widget(self, parent: ttk.Frame, spec: FieldSpec, variable: tk.Variable):
         if spec.field_type == "choice":
@@ -653,47 +729,97 @@ class MeshtasticConfigGUI:
 
     def save_config(self) -> None:
         try:
-            send_settings, listen_settings, autoresponder_settings = self._validated_all()
-            output_dir = Path(self.output_dir_var.get()).expanduser()
             family = self._active_family()
-            settings = (
-                autoresponder_settings
-                if family == "autoresponder"
-                else listen_settings
-                if family == "listen"
-                else send_settings
-            )
-            target_path = ConfigLogic.config_path(output_dir, family)
-            new_content = ConfigLogic.render_cfg(family, settings, output_dir / "meshtastic_mass_com.py")
-            if target_path.exists():
-                try:
-                    current_content = target_path.read_text(encoding="utf-8")
-                except OSError:
-                    current_content = None
-                if current_content is None or current_content != new_content:
-                    overwrite = messagebox.askyesno(
-                        APP_TITLE,
-                        f"The existing {family} cfg will be overwritten:\n\n{target_path}\n\nContinue?",
-                        icon="warning",
-                    )
-                    if not overwrite:
-                        self.status_var.set(f"Save cancelled for {target_path.name}")
-                        return
-            saved_path = ConfigLogic.save_cfg(
-                output_dir,
-                family,
-                settings,
-                output_dir / "meshtastic_mass_com.py",
-            )
+            saved_path = self._save_family_config(family)
             self.generate_preview()
             self.status_var.set(f"Saved: {saved_path.name}")
-            messagebox.showinfo(
-                APP_TITLE,
-                f"Config file written successfully:\n\n{saved_path}",
-            )
+        except RuntimeError:
+            return
         except Exception as exc:
             messagebox.showerror(APP_TITLE, f"Could not save config files:\n{exc}")
             self.status_var.set(f"Save failed: {exc}")
+
+    def _settings_for_family(self, family: str, send_settings: dict, listen_settings: dict, autoresponder_settings: dict) -> dict:
+        return (
+            autoresponder_settings
+            if family == "autoresponder"
+            else listen_settings
+            if family == "listen"
+            else send_settings
+        )
+
+    def _save_family_config(self, family: str) -> Path:
+        send_settings, listen_settings, autoresponder_settings = self._validated_all()
+        output_dir = Path(self.output_dir_var.get()).expanduser()
+        settings = self._settings_for_family(family, send_settings, listen_settings, autoresponder_settings)
+        target_path = ConfigLogic.config_path(output_dir, family)
+        new_content = ConfigLogic.render_cfg(family, settings, output_dir / "meshtastic_mass_com.py")
+        if target_path.exists():
+            try:
+                current_content = target_path.read_text(encoding="utf-8")
+            except OSError:
+                current_content = None
+            if current_content is None or current_content != new_content:
+                overwrite = messagebox.askyesno(
+                    APP_TITLE,
+                    f"The existing {family} cfg will be overwritten:\n\n{target_path}\n\nContinue?",
+                    icon="warning",
+                )
+                if not overwrite:
+                    self.status_var.set(f"Save cancelled for {target_path.name}")
+                    raise RuntimeError("Save cancelled.")
+        return ConfigLogic.save_cfg(
+            output_dir,
+            family,
+            settings,
+            output_dir / "meshtastic_mass_com.py",
+        )
+
+    def _launch_script(self, family: str) -> None:
+        output_dir = Path(self.output_dir_var.get()).expanduser()
+        script_path = output_dir / "meshtastic_mass_com.py"
+        if not script_path.exists():
+            messagebox.showerror(APP_TITLE, f"Main script not found:\n\n{script_path}")
+            self.status_var.set(f"Launch failed: missing {script_path.name}")
+            return
+
+        try:
+            self._save_family_config(family)
+        except RuntimeError:
+            return
+        except Exception as exc:
+            messagebox.showerror(APP_TITLE, f"Could not save {family} cfg before launch:\n{exc}")
+            self.status_var.set(f"Launch failed: {exc}")
+            return
+
+        python_cmd = resolve_console_python()
+        command = [python_cmd, str(script_path)]
+        if family == "listen":
+            command.append("--listen")
+        else:
+            command.extend(["--mode", "send"])
+
+        try:
+            if sys.platform.startswith("win"):
+                cmdline = subprocess.list2cmdline(command)
+                launch_command = ["cmd.exe", "/k", cmdline]
+                subprocess.Popen(
+                    launch_command,
+                    cwd=str(output_dir),
+                    creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
+                )
+            else:
+                subprocess.Popen(command, cwd=str(output_dir))
+            self.status_var.set(f"Started {family} script: {' '.join(command[2:]) or 'default'}")
+        except Exception as exc:
+            messagebox.showerror(APP_TITLE, f"Could not start the script:\n{exc}")
+            self.status_var.set(f"Launch failed: {exc}")
+
+    def start_send_script(self) -> None:
+        self._launch_script("send")
+
+    def start_listen_script(self) -> None:
+        self._launch_script("listen")
 
 
 def main() -> None:
@@ -703,7 +829,10 @@ def main() -> None:
         style.theme_use("vista")
     except tk.TclError:
         pass
-    MeshtasticConfigGUI(root)
+    app = MeshtasticConfigGUI(root)
+    root.bind_all("<MouseWheel>", app._on_mousewheel)
+    root.bind_all("<Button-4>", app._on_mousewheel)
+    root.bind_all("<Button-5>", app._on_mousewheel)
     root.mainloop()
 
 

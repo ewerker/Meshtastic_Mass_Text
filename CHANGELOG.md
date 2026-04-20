@@ -8,6 +8,25 @@ The format is inspired by Keep a Changelog and uses project release tags where a
 
 - Reserved for upcoming changes before the next tagged release.
 
+## [0.7.1] - 2026-04-20
+
+### Added
+
+- Added autoresponder unicast mode driven by the saved send cfg recipient selection.
+- Added templated autoresponder reply text with variables from the triggering message.
+- Added start buttons in the cfg GUI for launching send and listen workflows directly.
+
+### Changed
+
+- Made the cfg GUI tabs vertically scrollable so the full form fits on standard screens.
+- Improved effective parameter reporting so listen, send, and autoresponder cfg sources are shown explicitly.
+- Kept the GUI running commands in a visible console-friendly way so launch errors remain visible.
+
+### Fixed
+
+- Fixed cfg parsing for autoresponder templates that contain percent placeholders.
+- Fixed autoresponder handling so routing and ACK packets do not retrigger reply loops.
+
 ## [0.7.0] - 2026-04-20
 
 ### Changed

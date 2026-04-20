@@ -49,11 +49,13 @@ DEFAULT_SETTINGS = {
     "listen_group_only": False,
     "listen_text_only": False,
     "autoresponder": False,
+    "autoresponder_unicast": False,
     "autoresponder_sender_mode": "all",
     "autoresponder_sender_filter": "",
     "autoresponder_message_mode": "filter",
     "autoresponder_message_filter": "!Ping",
     "autoresponder_reply": "Pong",
+    "autoresponder_reply_template": "Autoresponder: from %longname%: %message% / Message;  %answer%",
     "retry_implicit_ack": 0,
     "retry_nak": 0,
     "dry_run": False,
@@ -82,11 +84,13 @@ SETTING_TYPES = {
     "listen_group_only": "bool",
     "listen_text_only": "bool",
     "autoresponder": "bool",
+    "autoresponder_unicast": "bool",
     "autoresponder_sender_mode": "str",
     "autoresponder_sender_filter": "str",
     "autoresponder_message_mode": "str",
     "autoresponder_message_filter": "str",
     "autoresponder_reply": "str",
+    "autoresponder_reply_template": "str",
     "retry_implicit_ack": "int",
     "retry_nak": "int",
     "dry_run": "bool",
@@ -133,19 +137,38 @@ LISTEN_CONFIG_KEYS = (
 )
 AUTORESPONDER_CONFIG_KEYS = (
     "autoresponder",
+    "autoresponder_unicast",
     "autoresponder_sender_mode",
     "autoresponder_sender_filter",
     "autoresponder_message_mode",
     "autoresponder_message_filter",
     "autoresponder_reply",
+    "autoresponder_reply_template",
 )
 AUTORESPONDER_SEND_KEYS = (
     "ack",
+    "channel_index",
+    "include_unmessageable",
     "delay",
+    "target_mode",
+    "target_filter",
+    "selection",
     "timeout",
     "retry_implicit_ack",
     "retry_nak",
 )
+AUTORESPONDER_SEND_KEY_MAP = {
+    "ack": "autoresponder_send_ack",
+    "channel_index": "autoresponder_send_channel_index",
+    "include_unmessageable": "autoresponder_send_include_unmessageable",
+    "delay": "autoresponder_send_delay",
+    "target_mode": "autoresponder_send_target_mode",
+    "target_filter": "autoresponder_send_target_filter",
+    "selection": "autoresponder_send_selection",
+    "timeout": "autoresponder_send_timeout",
+    "retry_implicit_ack": "autoresponder_send_retry_implicit_ack",
+    "retry_nak": "autoresponder_send_retry_nak",
+}
 
 ANSI_RESET = "\033[0m"
 ANSI_BOLD = "\033[1m"
@@ -500,7 +523,7 @@ def load_config_with_sources(config_path: Path, config_family: str | None = None
     if not config_path.exists():
         return settings, sources
 
-    parser = configparser.ConfigParser()
+    parser = configparser.ConfigParser(interpolation=None)
     parser.read(config_path, encoding="utf-8")
     if not parser.has_section(CONFIG_SECTION):
         return settings, sources
@@ -511,15 +534,16 @@ def load_config_with_sources(config_path: Path, config_family: str | None = None
         if section.get(key, fallback=None) is None:
             continue
         settings[key] = parse_config_value(section, key, value_type)
-        sources[key] = "cfg"
+        sources[key] = f"{resolved_family}_cfg"
     return settings, sources
 
 
 def format_source_label(source: str) -> str:
     colors = {
         "cmd": "cyan",
-        "cfg": "green",
         "send_cfg": "green",
+        "listen_cfg": "green",
+        "autoresponder_cfg": "green",
         "default": "yellow",
         "auto": "magenta",
         "prompt": "blue",
@@ -539,17 +563,24 @@ def print_effective_parameters(settings: dict, mode_label: str, fields: list[tup
     print()
     print(colorize(f"Effective parameters for {mode_label}:", "cyan", bold=True))
     config_path = settings.get("__config_path")
+    config_family = settings.get("__config_family")
     if config_path:
-        print(f"  cfg file: {config_path}")
+        config_label = f"{config_family} cfg file" if config_family else "cfg file"
+        print(f"  {config_label}: {config_path}")
     autoresponder_config_path = settings.get("__autoresponder_config_path")
     if autoresponder_config_path:
         print(f"  autoresponder cfg file: {autoresponder_config_path}")
     send_config_path = settings.get("__send_config_path")
     if send_config_path:
         print(f"  send cfg file: {send_config_path}")
-    for key, value in fields:
-        source = settings.get("__sources", {}).get(key, "default")
-        print(f"  {format_source_label(source)} {key} = {format_effective_value(value)}")
+    for field in fields:
+        if len(field) == 3:
+            source_key, display_key, value = field
+        else:
+            source_key, value = field
+            display_key = source_key
+        source = settings.get("__sources", {}).get(source_key, "default")
+        print(f"  {format_source_label(source)} {display_key} = {format_effective_value(value)}")
 
 
 def config_file_values(settings: dict, config_family: str) -> dict[str, str]:
@@ -575,11 +606,13 @@ def config_file_values(settings: dict, config_family: str) -> dict[str, str]:
         "listen_group_only": str(settings["listen_group_only"]).lower(),
         "listen_text_only": str(settings["listen_text_only"]).lower(),
         "autoresponder": str(settings["autoresponder"]).lower(),
+        "autoresponder_unicast": str(settings["autoresponder_unicast"]).lower(),
         "autoresponder_sender_mode": settings["autoresponder_sender_mode"] or "all",
         "autoresponder_sender_filter": settings["autoresponder_sender_filter"] or "",
         "autoresponder_message_mode": settings["autoresponder_message_mode"] or "filter",
         "autoresponder_message_filter": settings["autoresponder_message_filter"] or "",
         "autoresponder_reply": settings["autoresponder_reply"] or "",
+        "autoresponder_reply_template": settings["autoresponder_reply_template"] or "",
         "retry_implicit_ack": str(settings["retry_implicit_ack"]),
         "retry_nak": str(settings["retry_nak"]),
         "dry_run": str(settings["dry_run"]).lower(),
@@ -703,6 +736,8 @@ def render_config_text(settings: dict, config_family_or_path) -> str:
                 "# Workflow",
                 "# true enables the autoresponder in listen mode by default.",
                 f"autoresponder = {values['autoresponder']}",
+                "# true sends direct replies to the recipients selected by the send cfg instead of only back to the triggering sender.",
+                f"autoresponder_unicast = {values['autoresponder_unicast']}",
                 "",
                 "# Sender matching",
                 "# all = accept every sender, filter = only matching senders.",
@@ -719,6 +754,11 @@ def render_config_text(settings: dict, config_family_or_path) -> str:
                 "# Reply",
                 "# Direct message text sent back to the original sender.",
                 f"autoresponder_reply = {values['autoresponder_reply']}",
+                "# Optional reply template with variables from the triggering message.",
+                "# Available variables: %node_id%, %label%, %shortname%, %longname%, %message%, %channel_index%, %channel_name%, %scope%, %answer%",
+                "# %answer% is replaced with the configured autoresponder_reply text.",
+                "# Example: Autoresponder: from %longname%: %message% / Message;  %answer%",
+                f"autoresponder_reply_template = {values['autoresponder_reply_template']}",
                 "",
             ]
         )
@@ -908,8 +948,9 @@ def resolve_settings(args: argparse.Namespace) -> dict | None:
             sources[key] = autoresponder_sources[key]
         send_settings, send_sources = load_config_with_sources(SEND_CONFIG_PATH, "send")
         for key in AUTORESPONDER_SEND_KEYS:
-            settings[key] = send_settings[key]
-            sources[key] = "send_cfg" if send_sources.get(key) == "cfg" else send_sources.get(key, "default")
+            mapped_key = AUTORESPONDER_SEND_KEY_MAP[key]
+            settings[mapped_key] = send_settings[key]
+            sources[mapped_key] = send_sources.get(key, "default")
 
     if cli_overrides:
         settings.update(cli_overrides)
@@ -1288,6 +1329,37 @@ def select_recipients(
     return selected, selection_description
 
 
+def select_recipients_silently(
+    recipients: list[dict],
+    target_mode: str | None,
+    target_filter: str | None,
+    selection: str | None,
+) -> tuple[list[dict], str]:
+    resolved_mode = (target_mode or "all").strip().lower()
+    resolved_filter = (target_filter or "").strip() or None
+    resolved_selection = (selection or "").strip() or None
+
+    if resolved_mode == "all":
+        return list(recipients), "all known nodes"
+
+    filtered = filter_recipients(recipients, resolved_filter)
+    if resolved_mode == "filter":
+        return filtered, f'filter "{resolved_filter}"'
+
+    if resolved_mode != "select":
+        raise ValueError(f"Unsupported target mode for autoresponder unicast: {resolved_mode}")
+
+    if not resolved_selection:
+        raise ValueError("Selection is required for autoresponder unicast when send target mode is 'select'.")
+
+    indices = parse_selection_spec(resolved_selection, len(filtered))
+    selected = [filtered[index - 1] for index in indices]
+    description = f"manual selection [{','.join(str(index) for index in indices)}]"
+    if resolved_filter:
+        description = f'{description} from filter "{resolved_filter}"'
+    return selected, description
+
+
 def confirm_send(_message: str, recipients: list[dict], _target_description: str, unattended: bool = False) -> bool:
     print()
     print(f"Recipients: {len(recipients)}")
@@ -1533,7 +1605,11 @@ def packet_matches_listen_filters(interface: SerialInterface, packet: dict, sett
 
 def build_receive_record(interface: SerialInterface, packet: dict) -> dict:
     sender_id = packet.get("fromId") or str(packet.get("from", "unknown"))
-    sender_label = get_recipient_label(interface, sender_id)
+    sender_node = interface.nodes.get(sender_id, {})
+    sender_user = sender_node.get("user", {})
+    sender_short_name = sender_user.get("shortName", "")
+    sender_long_name = sender_user.get("longName", "")
+    sender_label = sender_long_name or sender_short_name or get_recipient_label(interface, sender_id)
     receiver_id = packet.get("toId") or str(packet.get("to", "unknown"))
     text = extract_text(packet)
     channel = packet_channel(interface, packet)
@@ -1551,6 +1627,8 @@ def build_receive_record(interface: SerialInterface, packet: dict) -> dict:
     return {
         "from_id": sender_id,
         "from_label": sender_label,
+        "from_short_name": sender_short_name,
+        "from_long_name": sender_long_name,
         "to_id": receiver_id,
         "channel_index": channel,
         "channel_name": channel_name(interface, channel),
@@ -1726,6 +1804,29 @@ def autoresponder_message_matches(record: dict, settings: dict) -> bool:
     return text_matches_filter(record.get("text"), message_filter)
 
 
+def build_autoresponder_reply_text(record: dict, settings: dict) -> str:
+    base_answer = (settings.get("autoresponder_reply") or "").strip()
+    template = (settings.get("autoresponder_reply_template") or "").strip()
+    if not template:
+        return base_answer
+
+    replacements = {
+        "%node_id%": str(record.get("from_id") or ""),
+        "%label%": str(record.get("from_label") or ""),
+        "%shortname%": str(record.get("from_short_name") or ""),
+        "%longname%": str(record.get("from_long_name") or ""),
+        "%message%": str(record.get("text") or ""),
+        "%channel_index%": "" if record.get("channel_index") is None else str(record.get("channel_index")),
+        "%channel_name%": str(record.get("channel_name") or ""),
+        "%scope%": str(record.get("scope") or ""),
+        "%answer%": base_answer,
+    }
+    reply_text = template
+    for placeholder, value in replacements.items():
+        reply_text = reply_text.replace(placeholder, value)
+    return reply_text.strip()
+
+
 def should_autorespond(interface: SerialInterface, packet: dict, record: dict, settings: dict) -> bool:
     if not settings.get("autoresponder"):
         return False
@@ -1743,10 +1844,47 @@ def should_autorespond(interface: SerialInterface, packet: dict, record: dict, s
         return False
     if not autoresponder_message_matches(record, settings):
         return False
-    reply_text = (settings.get("autoresponder_reply") or "").strip()
+    reply_text = build_autoresponder_reply_text(record, settings)
     if not reply_text:
         return False
     return True
+
+
+def resolve_autoresponder_targets(
+    interface: SerialInterface,
+    record: dict,
+    settings: dict,
+) -> tuple[list[dict], int, str | None, str]:
+    if not settings.get("autoresponder_unicast"):
+        recipient_id = record.get("from_id")
+        if not recipient_id:
+            return [], 0, None, "triggering sender"
+        channel_index = record.get("channel_index")
+        if channel_index is None:
+            channel_index = 0
+        return (
+            [
+                {
+                    "node_id": recipient_id,
+                    "label": record.get("from_label") or recipient_id,
+                }
+            ],
+            channel_index,
+            record.get("channel_name"),
+            "triggering sender",
+        )
+
+    recipients = collect_recipients(interface, settings.get("autoresponder_send_include_unmessageable", False))
+    selected, target_description = select_recipients_silently(
+        recipients,
+        settings.get("autoresponder_send_target_mode"),
+        settings.get("autoresponder_send_target_filter"),
+        settings.get("autoresponder_send_selection"),
+    )
+    channel_index = settings.get("autoresponder_send_channel_index")
+    if channel_index is None:
+        channel_index = 0
+    return selected, channel_index, channel_name(interface, channel_index), target_description
 
 
 def send_autoresponse(
@@ -1756,75 +1894,92 @@ def send_autoresponse(
     log_path: Path | None,
     history_path: Path,
 ) -> None:
-    recipient_id = record.get("from_id")
-    if not recipient_id:
+    reply_text = build_autoresponder_reply_text(record, settings)
+    try:
+        targets, channel_index, resolved_channel_name, target_description = resolve_autoresponder_targets(
+            interface, record, settings
+        )
+    except ValueError as exc:
+        print(colorize(f"Autoresponder target selection failed: {exc}", "red", bold=True))
         return
-    reply_text = (settings.get("autoresponder_reply") or "").strip()
-    channel_index = record.get("channel_index")
-    if channel_index is None:
-        channel_index = 0
-    recipient_label = record.get("from_label") or recipient_id
-    channel_name = record.get("channel_name")
-    if channel_name:
-        channel_text = f"{channel_index}:{channel_name}"
-    else:
-        channel_text = str(channel_index)
-    result = "sent_without_ack"
-    packet_id = "unknown"
-    if settings["ack"]:
-        ack_kind, ack_message, packet_id, _attempts_used = send_with_ack_retry(
-            interface,
-            {
-                "node_id": recipient_id,
-                "label": recipient_label,
-            },
-            reply_text,
-            {
-                "channel_index": channel_index,
-                "timeout": settings["timeout"],
-                "retry_implicit_ack": settings["retry_implicit_ack"],
-                "retry_nak": settings["retry_nak"],
-                "delay": settings["delay"],
-            },
-            log_path,
-        )
-        result = ack_kind
-        color = "green" if ack_kind == "ack" else "yellow" if ack_kind == "implicit_ack" else "red"
-        print(
-            colorize(
-                f"Sent to {recipient_label} ({recipient_id}) on ch={channel_text}: {reply_text} [autoresponder]",
-                "cyan",
+
+    if not targets:
+        print(colorize("Autoresponder found no matching recipients for the current send target selection.", "yellow"))
+        return
+
+    channel_text = f"{channel_index}:{resolved_channel_name}" if resolved_channel_name else str(channel_index)
+    if settings.get("autoresponder_unicast"):
+        print(colorize(f"Autoresponder unicast target set: {target_description}", "cyan"))
+
+    send_ack = settings.get("autoresponder_send_ack", False)
+    send_delay = settings.get("autoresponder_send_delay", 0.5)
+    send_timeout = settings.get("autoresponder_send_timeout", settings["timeout"])
+    send_retry_implicit_ack = settings.get("autoresponder_send_retry_implicit_ack", 0)
+    send_retry_nak = settings.get("autoresponder_send_retry_nak", 0)
+
+    for recipient in targets:
+        recipient_id = recipient.get("node_id")
+        if not recipient_id:
+            continue
+        recipient_label = recipient.get("label") or recipient_id
+        result = "sent_without_ack"
+        packet_id = "unknown"
+        if send_ack:
+            ack_kind, ack_message, packet_id, _attempts_used = send_with_ack_retry(
+                interface,
+                {
+                    "node_id": recipient_id,
+                    "label": recipient_label,
+                },
+                reply_text,
+                {
+                    "channel_index": channel_index,
+                    "timeout": send_timeout,
+                    "retry_implicit_ack": send_retry_implicit_ack,
+                    "retry_nak": send_retry_nak,
+                    "delay": send_delay,
+                },
+                log_path,
             )
-        )
-        print(colorize(f"{ack_message} {recipient_label} ({recipient_id}), packet ID {packet_id} [autoresponder]", color))
-    else:
-        packet = interface.sendText(
-            reply_text,
-            destinationId=recipient_id,
-            wantAck=False,
-            channelIndex=channel_index,
-        )
-        packet_id = getattr(packet, "id", "unknown")
-        print(
-            colorize(
-                f"Sent to {recipient_label} ({recipient_id}) on ch={channel_text}: {reply_text} [autoresponder], packet ID {packet_id}",
-                "cyan",
+            result = ack_kind
+            color = "green" if ack_kind == "ack" else "yellow" if ack_kind == "implicit_ack" else "red"
+            print(
+                colorize(
+                    f"Sent to {recipient_label} ({recipient_id}) on ch={channel_text}: {reply_text} [autoresponder]",
+                    "cyan",
+                )
             )
-        )
-    payload = {
-        "recipient_id": recipient_id,
-        "recipient_label": recipient_label,
-        "channel_index": channel_index,
-        "channel_name": record.get("channel_name"),
-        "message": reply_text,
-        "packet_id": packet_id,
-        "result": result,
-        "source_text": record.get("text"),
-        "source_sender_filter": settings.get("autoresponder_sender_filter", ""),
-        "source_message_filter": settings.get("autoresponder_message_filter", ""),
-    }
-    append_jsonl(log_path, "autoresponse", payload)
-    append_history(history_path, "send_autoresponse", payload)
+            print(colorize(f"{ack_message} {recipient_label} ({recipient_id}), packet ID {packet_id} [autoresponder]", color))
+        else:
+            packet = interface.sendText(
+                reply_text,
+                destinationId=recipient_id,
+                wantAck=False,
+                channelIndex=channel_index,
+            )
+            packet_id = getattr(packet, "id", "unknown")
+            print(
+                colorize(
+                    f"Sent to {recipient_label} ({recipient_id}) on ch={channel_text}: {reply_text} [autoresponder], packet ID {packet_id}",
+                    "cyan",
+                )
+            )
+        payload = {
+            "recipient_id": recipient_id,
+            "recipient_label": recipient_label,
+            "channel_index": channel_index,
+            "channel_name": resolved_channel_name,
+            "message": reply_text,
+            "packet_id": packet_id,
+            "result": result,
+            "source_text": record.get("text"),
+            "source_sender_filter": settings.get("autoresponder_sender_filter", ""),
+            "source_message_filter": settings.get("autoresponder_message_filter", ""),
+            "autoresponder_unicast": settings.get("autoresponder_unicast", False),
+            "target_description": target_description,
+        }
+        append_jsonl(log_path, "autoresponse", payload)
+        append_history(history_path, "send_autoresponse", payload)
 
 
 def run_listen_mode(interface: SerialInterface, settings: dict) -> int:
@@ -1837,23 +1992,30 @@ def run_listen_mode(interface: SerialInterface, settings: dict) -> int:
         "listen",
         [
             ("port", settings["port"]),
-            ("timeout", settings["timeout"]),
+            ("timeout", "listen_timeout", settings["timeout"]),
             ("listen_filter", settings["listen_filter"]),
             ("listen_channel_index", settings["listen_channel_index"]),
             ("listen_dm_only", settings["listen_dm_only"]),
             ("listen_group_only", settings["listen_group_only"]),
             ("listen_text_only", settings["listen_text_only"]),
             ("autoresponder", settings["autoresponder"]),
+            ("autoresponder_unicast", settings["autoresponder_unicast"]),
             ("autoresponder_sender_mode", settings["autoresponder_sender_mode"]),
             ("autoresponder_sender_filter", settings["autoresponder_sender_filter"]),
             ("autoresponder_message_mode", settings["autoresponder_message_mode"]),
             ("autoresponder_message_filter", settings["autoresponder_message_filter"]),
             ("autoresponder_reply", settings["autoresponder_reply"]),
-            ("ack", settings["ack"]),
-            ("delay", settings["delay"]),
-            ("timeout", settings["timeout"]),
-            ("retry_implicit_ack", settings["retry_implicit_ack"]),
-            ("retry_nak", settings["retry_nak"]),
+            ("autoresponder_reply_template", settings["autoresponder_reply_template"]),
+            ("autoresponder_send_channel_index", "send_channel_index", settings.get("autoresponder_send_channel_index")),
+            ("autoresponder_send_target_mode", "send_target_mode", settings.get("autoresponder_send_target_mode")),
+            ("autoresponder_send_target_filter", "send_target_filter", settings.get("autoresponder_send_target_filter")),
+            ("autoresponder_send_selection", "send_selection", settings.get("autoresponder_send_selection")),
+            ("autoresponder_send_include_unmessageable", "send_include_unmessageable", settings.get("autoresponder_send_include_unmessageable")),
+            ("autoresponder_send_ack", "send_ack", settings.get("autoresponder_send_ack")),
+            ("autoresponder_send_delay", "send_delay", settings.get("autoresponder_send_delay")),
+            ("autoresponder_send_timeout", "send_timeout", settings.get("autoresponder_send_timeout")),
+            ("autoresponder_send_retry_implicit_ack", "send_retry_implicit_ack", settings.get("autoresponder_send_retry_implicit_ack")),
+            ("autoresponder_send_retry_nak", "send_retry_nak", settings.get("autoresponder_send_retry_nak")),
             ("unattended", settings["unattended"]),
             ("log_file", log_path if settings["log_file"] else "<disabled>"),
             ("history_file", history_path),

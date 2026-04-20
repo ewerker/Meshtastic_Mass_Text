@@ -5,4 +5,4 @@ SPDX-License-Identifier: MIT
 """
 
 APP_NAME = "Meshtastic_Mass_Com"
-APP_VERSION = "0.7.0"
+APP_VERSION = "0.7.1"
