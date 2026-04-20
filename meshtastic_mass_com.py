@@ -23,6 +23,7 @@ SCRIPT_PATH = Path(__file__)
 SCRIPT_STEM = SCRIPT_PATH.stem
 SEND_CONFIG_PATH = SCRIPT_PATH.with_name(f"{SCRIPT_STEM}.send.cfg")
 LISTEN_CONFIG_PATH = SCRIPT_PATH.with_name(f"{SCRIPT_STEM}.listen.cfg")
+AUTORESPONDER_CONFIG_PATH = SCRIPT_PATH.with_name(f"{SCRIPT_STEM}.autoresponder.cfg")
 SEND_HISTORY_PATH = SCRIPT_PATH.with_name(f"{SCRIPT_STEM}.send.history.jsonl")
 LISTEN_HISTORY_PATH = SCRIPT_PATH.with_name(f"{SCRIPT_STEM}.listen.history.jsonl")
 CONFIG_SECTION = "settings"
@@ -46,6 +47,12 @@ DEFAULT_SETTINGS = {
     "listen_dm_only": False,
     "listen_group_only": False,
     "listen_text_only": False,
+    "autoresponder": False,
+    "autoresponder_sender_mode": "all",
+    "autoresponder_sender_filter": "",
+    "autoresponder_message_mode": "filter",
+    "autoresponder_message_filter": "!Ping",
+    "autoresponder_reply": "Pong",
     "retry_implicit_ack": 0,
     "retry_nak": 0,
     "dry_run": False,
@@ -73,6 +80,12 @@ SETTING_TYPES = {
     "listen_dm_only": "bool",
     "listen_group_only": "bool",
     "listen_text_only": "bool",
+    "autoresponder": "bool",
+    "autoresponder_sender_mode": "str",
+    "autoresponder_sender_filter": "str",
+    "autoresponder_message_mode": "str",
+    "autoresponder_message_filter": "str",
+    "autoresponder_reply": "str",
     "retry_implicit_ack": "int",
     "retry_nak": "int",
     "dry_run": "bool",
@@ -115,6 +128,14 @@ LISTEN_CONFIG_KEYS = (
     "history_file",
     "history_filter",
     "history_limit",
+)
+AUTORESPONDER_CONFIG_KEYS = (
+    "autoresponder",
+    "autoresponder_sender_mode",
+    "autoresponder_sender_filter",
+    "autoresponder_message_mode",
+    "autoresponder_message_filter",
+    "autoresponder_reply",
 )
 
 ANSI_RESET = "\033[0m"
@@ -185,6 +206,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--listen",
         action="store_true",
         help="Shortcut for --mode listen.",
+    )
+    parser.add_argument(
+        "--autoresponder",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="In listen mode, enable or disable the autoresponder runtime. Detailed autoresponder rules come from the dedicated autoresponder cfg.",
     )
     parser.add_argument(
         "--broadcast",
@@ -370,6 +397,10 @@ def example_command_for_family(config_family: str) -> str:
             '--listen-channel-index 1 --dm-only --text-only --log-file "./listen_log.jsonl" '
             '--history-file "./meshtastic_mass_com.listen.history.jsonl" --unattended --forcecfg'
         )
+    if config_family == "autoresponder":
+        return (
+            'python ./meshtastic_mass_com.py --listen --autoresponder'
+        )
     return (
         'python ./meshtastic_mass_com.py --mode send --port <PORT> --channel-index 1 --ack '
         '--delay 1.5 --timeout 60 --target-mode select --filter "FR*" --selection "1,3" '
@@ -385,7 +416,11 @@ def determine_config_family(args: argparse.Namespace) -> str:
 
 
 def config_path_for_family(config_family: str) -> Path:
-    return LISTEN_CONFIG_PATH if config_family == "listen" else SEND_CONFIG_PATH
+    if config_family == "listen":
+        return LISTEN_CONFIG_PATH
+    if config_family == "autoresponder":
+        return AUTORESPONDER_CONFIG_PATH
+    return SEND_CONFIG_PATH
 
 
 def history_path_for_family(config_family: str) -> Path:
@@ -393,13 +428,21 @@ def history_path_for_family(config_family: str) -> Path:
 
 
 def config_keys_for_family(config_family: str) -> tuple[str, ...]:
-    return LISTEN_CONFIG_KEYS if config_family == "listen" else SEND_CONFIG_KEYS
+    if config_family == "listen":
+        return LISTEN_CONFIG_KEYS
+    if config_family == "autoresponder":
+        return AUTORESPONDER_CONFIG_KEYS
+    return SEND_CONFIG_KEYS
 
 
 def defaults_for_family(config_family: str) -> dict:
     settings = DEFAULT_SETTINGS.copy()
-    settings["mode"] = "listen" if config_family == "listen" else "send"
-    settings["history_file"] = history_path_for_family(config_family).name
+    if config_family == "listen":
+        settings["mode"] = "listen"
+        settings["history_file"] = history_path_for_family(config_family).name
+    elif config_family == "send":
+        settings["mode"] = "send"
+        settings["history_file"] = history_path_for_family(config_family).name
     return settings
 
 
@@ -407,7 +450,7 @@ def persistable_settings(settings: dict, config_family: str) -> dict:
     persisted = defaults_for_family(config_family)
     for key in config_keys_for_family(config_family):
         persisted[key] = settings.get(key, persisted[key])
-    if not persisted.get("history_file"):
+    if config_family in {"send", "listen"} and not persisted.get("history_file"):
         persisted["history_file"] = history_path_for_family(config_family).name
     if config_family == "listen":
         persisted["mode"] = "listen"
@@ -435,7 +478,9 @@ def parse_config_value(section: configparser.SectionProxy, key: str, value_type:
 
 
 def load_config_with_sources(config_path: Path, config_family: str | None = None) -> tuple[dict, dict]:
-    resolved_family = config_family or ("listen" if config_path == LISTEN_CONFIG_PATH else "send")
+    resolved_family = config_family or (
+        "listen" if config_path == LISTEN_CONFIG_PATH else "autoresponder" if config_path == AUTORESPONDER_CONFIG_PATH else "send"
+    )
     settings = defaults_for_family(resolved_family)
     sources = {key: "default" for key in DEFAULT_SETTINGS}
     if not config_path.exists():
@@ -508,6 +553,12 @@ def config_file_values(settings: dict, config_family: str) -> dict[str, str]:
         "listen_dm_only": str(settings["listen_dm_only"]).lower(),
         "listen_group_only": str(settings["listen_group_only"]).lower(),
         "listen_text_only": str(settings["listen_text_only"]).lower(),
+        "autoresponder": str(settings["autoresponder"]).lower(),
+        "autoresponder_sender_mode": settings["autoresponder_sender_mode"] or "all",
+        "autoresponder_sender_filter": settings["autoresponder_sender_filter"] or "",
+        "autoresponder_message_mode": settings["autoresponder_message_mode"] or "filter",
+        "autoresponder_message_filter": settings["autoresponder_message_filter"] or "",
+        "autoresponder_reply": settings["autoresponder_reply"] or "",
         "retry_implicit_ack": str(settings["retry_implicit_ack"]),
         "retry_nak": str(settings["retry_nak"]),
         "dry_run": str(settings["dry_run"]).lower(),
@@ -519,12 +570,17 @@ def config_file_values(settings: dict, config_family: str) -> dict[str, str]:
 
 def render_config_text(settings: dict, config_family_or_path) -> str:
     if isinstance(config_family_or_path, Path):
-        config_family = "listen" if config_family_or_path == LISTEN_CONFIG_PATH else "send"
+        if config_family_or_path == LISTEN_CONFIG_PATH:
+            config_family = "listen"
+        elif config_family_or_path == AUTORESPONDER_CONFIG_PATH:
+            config_family = "autoresponder"
+        else:
+            config_family = "send"
     else:
         config_family = str(config_family_or_path)
     values = config_file_values(settings, config_family)
-    active_modes = "listen" if config_family == "listen" else "send, broadcast, history"
-    family_title = "Listen workflow" if config_family == "listen" else "Send workflow"
+    active_modes = "listen" if config_family == "listen" else "autoresponder" if config_family == "autoresponder" else "send, broadcast, history"
+    family_title = "Listen workflow" if config_family == "listen" else "Autoresponder" if config_family == "autoresponder" else "Send workflow"
     example = example_command_for_family(config_family)
 
     lines = [
@@ -558,6 +614,13 @@ def render_config_text(settings: dict, config_family_or_path) -> str:
                 "# - This cfg is used by --listen or --mode listen.",
                 "# - Only listen-related keys are persisted here.",
                 "# - Send-mode parameters passed on the CLI affect only the current run and are not written to this cfg.",
+            ]
+        )
+    elif config_family == "autoresponder":
+        lines.extend(
+            [
+                "# - This cfg controls autoresponder behavior for listen mode.",
+                "# - The CLI only toggles autoresponder on or off; matching rules and reply text come from this cfg.",
             ]
         )
     else:
@@ -605,6 +668,31 @@ def render_config_text(settings: dict, config_family_or_path) -> str:
                 f"history_filter = {values['history_filter']}",
                 "# Number of recent history entries to show in history mode.",
                 f"history_limit = {values['history_limit']}",
+                "",
+            ]
+        )
+    elif config_family == "autoresponder":
+        lines.extend(
+            [
+                "# Workflow",
+                "# true enables the autoresponder in listen mode by default.",
+                f"autoresponder = {values['autoresponder']}",
+                "",
+                "# Sender matching",
+                "# all = accept every sender, filter = only matching senders.",
+                f"autoresponder_sender_mode = {values['autoresponder_sender_mode']}",
+                "# Sender filter for node ID, short name, or long name. Wildcards such as JR* are supported.",
+                f"autoresponder_sender_filter = {values['autoresponder_sender_filter']}",
+                "",
+                "# Message matching",
+                "# all = answer every matching sender, filter = only when the message text matches.",
+                f"autoresponder_message_mode = {values['autoresponder_message_mode']}",
+                "# Message text filter. Wildcards such as !Ping* are supported; without wildcards it behaves like a contains match.",
+                f"autoresponder_message_filter = {values['autoresponder_message_filter']}",
+                "",
+                "# Reply",
+                "# Direct message text sent back to the original sender.",
+                f"autoresponder_reply = {values['autoresponder_reply']}",
                 "",
             ]
         )
@@ -668,13 +756,13 @@ def render_config_text(settings: dict, config_family_or_path) -> str:
 
 
 def save_config(settings: dict, config_path: Path, config_family: str | None = None) -> None:
-    resolved_family = config_family or ("listen" if config_path == LISTEN_CONFIG_PATH else "send")
+    resolved_family = config_family or ("listen" if config_path == LISTEN_CONFIG_PATH else "autoresponder" if config_path == AUTORESPONDER_CONFIG_PATH else "send")
     with config_path.open("w", encoding="utf-8") as config_file:
         config_file.write(render_config_text(settings, resolved_family))
 
 
 def rendered_config_text(settings: dict, config_path: Path, config_family: str | None = None) -> str:
-    resolved_family = config_family or ("listen" if config_path == LISTEN_CONFIG_PATH else "send")
+    resolved_family = config_family or ("listen" if config_path == LISTEN_CONFIG_PATH else "autoresponder" if config_path == AUTORESPONDER_CONFIG_PATH else "send")
     return render_config_text(settings, resolved_family)
 
 
@@ -717,6 +805,7 @@ def collect_cli_overrides(args: argparse.Namespace) -> dict:
         "listen_dm_only",
         "listen_group_only",
         "listen_text_only",
+        "autoresponder",
         "retry_implicit_ack",
         "retry_nak",
         "dry_run",
@@ -747,7 +836,9 @@ def resolve_settings(args: argparse.Namespace) -> dict | None:
     config_path = config_path_for_family(config_family)
     cli_overrides = collect_cli_overrides(args)
     cfg_relevant_overrides = {
-        key: value for key, value in cli_overrides.items() if not (key == "mode" and value == "send")
+        key: value
+        for key, value in cli_overrides.items()
+        if key in config_keys_for_family(config_family) and not (key == "mode" and value == "send")
     }
     config_exists = config_path.exists()
     should_write_cfg = bool(cfg_relevant_overrides) and not args.protectcfg
@@ -759,6 +850,11 @@ def resolve_settings(args: argparse.Namespace) -> dict | None:
         return None
 
     settings, sources = load_config_with_sources(config_path, config_family)
+    if config_family == "listen":
+        autoresponder_settings, autoresponder_sources = load_config_with_sources(AUTORESPONDER_CONFIG_PATH, "autoresponder")
+        for key in AUTORESPONDER_CONFIG_KEYS:
+            settings[key] = autoresponder_settings[key]
+            sources[key] = autoresponder_sources[key]
 
     if cli_overrides:
         settings.update(cli_overrides)
@@ -791,6 +887,8 @@ def resolve_settings(args: argparse.Namespace) -> dict | None:
     settings["__sources"] = sources
     settings["__config_path"] = config_path
     settings["__config_family"] = config_family
+    if config_family == "listen":
+        settings["__autoresponder_config_path"] = AUTORESPONDER_CONFIG_PATH
     return settings
 
 
@@ -974,6 +1072,17 @@ def recipient_matches_filter(recipient: dict, target_filter: str) -> bool:
         return any(fnmatch.fnmatch(value, pattern) for value in normalized)
 
     return any(pattern in value for value in normalized)
+
+
+def text_matches_filter(text: str | None, value_filter: str) -> bool:
+    if text is None:
+        return False
+    pattern = value_filter.casefold()
+    normalized = text.casefold()
+    has_wildcards = any(char in value_filter for char in "*?[]")
+    if has_wildcards:
+        return fnmatch.fnmatch(normalized, pattern)
+    return pattern in normalized
 
 
 def prompt_target_mode(
@@ -1521,7 +1630,104 @@ def format_history_line(entry: dict) -> str:
             f"result={result}: {entry.get('message', '')}"
         )
 
+    if entry_type == "send_autoresponse":
+        recipient = colorize(
+            f"{entry.get('recipient_label', 'unknown')} ({entry.get('recipient_id', 'unknown')})",
+            "white",
+            bold=True,
+        )
+        result = colorize(str(entry.get("result", "sent")), "cyan")
+        channel_text = colorize(f"ch={entry.get('channel_index', '?')}", "magenta")
+        return (
+            f"[{timestamp}] {colorize('AUTOREPLY', 'magenta', bold=True)} "
+            f"{channel_text} "
+            f"{recipient} result={result}: {entry.get('message', '')}"
+        )
+
     return f"[{timestamp}] {entry_type}: {entry}"
+
+
+def autoresponder_sender_matches(interface: SerialInterface, packet: dict, settings: dict) -> bool:
+    if settings["autoresponder_sender_mode"] == "all":
+        return True
+    sender = build_sender_candidate(interface, packet)
+    sender_filter = (settings["autoresponder_sender_filter"] or "").strip()
+    if not sender_filter:
+        return False
+    return recipient_matches_filter(sender, sender_filter)
+
+
+def autoresponder_message_matches(record: dict, settings: dict) -> bool:
+    if settings["autoresponder_message_mode"] == "all":
+        return True
+    message_filter = (settings["autoresponder_message_filter"] or "").strip()
+    if not message_filter:
+        return False
+    return text_matches_filter(record.get("text"), message_filter)
+
+
+def should_autorespond(interface: SerialInterface, packet: dict, record: dict, settings: dict) -> bool:
+    if not settings.get("autoresponder"):
+        return False
+    if not record.get("text"):
+        return False
+    local_num = get_local_node_num(interface)
+    packet_from = packet.get("from")
+    if local_num is not None and packet_from == local_num:
+        return False
+    if not autoresponder_sender_matches(interface, packet, settings):
+        return False
+    if not autoresponder_message_matches(record, settings):
+        return False
+    reply_text = (settings.get("autoresponder_reply") or "").strip()
+    if not reply_text:
+        return False
+    return True
+
+
+def send_autoresponse(
+    interface: SerialInterface,
+    record: dict,
+    settings: dict,
+    log_path: Path | None,
+    history_path: Path,
+) -> None:
+    recipient_id = record.get("from_id")
+    if not recipient_id:
+        return
+    reply_text = (settings.get("autoresponder_reply") or "").strip()
+    channel_index = record.get("channel_index")
+    if channel_index is None:
+        channel_index = 0
+    packet = interface.sendText(
+        reply_text,
+        destinationId=recipient_id,
+        wantAck=False,
+        channelIndex=channel_index,
+    )
+    packet_id = getattr(packet, "id", "unknown")
+    recipient_label = record.get("from_label") or recipient_id
+    print(
+        colorize(
+            f"Autoresponder sent to {recipient_label} ({recipient_id}) on channel {channel_index}, packet ID {packet_id}",
+            "magenta",
+            bold=True,
+        )
+    )
+    payload = {
+        "recipient_id": recipient_id,
+        "recipient_label": recipient_label,
+        "channel_index": channel_index,
+        "channel_name": record.get("channel_name"),
+        "message": reply_text,
+        "packet_id": packet_id,
+        "result": "sent_without_ack",
+        "source_text": record.get("text"),
+        "source_sender_filter": settings.get("autoresponder_sender_filter", ""),
+        "source_message_filter": settings.get("autoresponder_message_filter", ""),
+    }
+    append_jsonl(log_path, "autoresponse", payload)
+    append_history(history_path, "send_autoresponse", payload)
 
 
 def run_listen_mode(interface: SerialInterface, settings: dict) -> int:
@@ -1540,6 +1746,12 @@ def run_listen_mode(interface: SerialInterface, settings: dict) -> int:
             ("listen_dm_only", settings["listen_dm_only"]),
             ("listen_group_only", settings["listen_group_only"]),
             ("listen_text_only", settings["listen_text_only"]),
+            ("autoresponder", settings["autoresponder"]),
+            ("autoresponder_sender_mode", settings["autoresponder_sender_mode"]),
+            ("autoresponder_sender_filter", settings["autoresponder_sender_filter"]),
+            ("autoresponder_message_mode", settings["autoresponder_message_mode"]),
+            ("autoresponder_message_filter", settings["autoresponder_message_filter"]),
+            ("autoresponder_reply", settings["autoresponder_reply"]),
             ("unattended", settings["unattended"]),
             ("log_file", log_path if settings["log_file"] else "<disabled>"),
             ("history_file", history_path),
@@ -1561,6 +1773,18 @@ def run_listen_mode(interface: SerialInterface, settings: dict) -> int:
         print("Content filter: text packets only")
     if log_path:
         print(colorize(f"Logging to: {log_path}", "cyan"))
+    print(colorize(f"History file: {history_path}", "cyan"))
+    if settings["autoresponder"]:
+        print(colorize("Autoresponder: enabled", "magenta", bold=True))
+        print(f"Autoresponder cfg: {settings.get('__autoresponder_config_path', AUTORESPONDER_CONFIG_PATH)}")
+        print(f"Autoresponder sender mode: {settings['autoresponder_sender_mode']}")
+        if settings["autoresponder_sender_mode"] == "filter":
+            print(f"Autoresponder sender filter: {settings['autoresponder_sender_filter']}")
+        print(f"Autoresponder message mode: {settings['autoresponder_message_mode']}")
+        if settings["autoresponder_message_mode"] == "filter":
+            print(f"Autoresponder message filter: {settings['autoresponder_message_filter']}")
+        if not (settings.get("autoresponder_reply") or "").strip():
+            print(colorize("Autoresponder reply text is empty, so no replies will be sent.", "yellow"))
 
     def on_receive(packet, interface):
         nonlocal received_count
@@ -1571,6 +1795,11 @@ def run_listen_mode(interface: SerialInterface, settings: dict) -> int:
         print(format_receive_line(record))
         append_jsonl(log_path, "receive", record)
         append_history(history_path, "receive", record)
+        if should_autorespond(interface, packet, record, settings):
+            try:
+                send_autoresponse(interface, record, settings, log_path, history_path)
+            except Exception as exc:
+                print(colorize(f"Autoresponder failed for {record.get('from_label', 'unknown')} ({record.get('from_id', 'unknown')}): {exc}", "red"))
 
     pub.subscribe(on_receive, "meshtastic.receive")
     try:
