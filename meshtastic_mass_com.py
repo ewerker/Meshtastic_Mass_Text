@@ -137,6 +137,13 @@ AUTORESPONDER_CONFIG_KEYS = (
     "autoresponder_message_filter",
     "autoresponder_reply",
 )
+AUTORESPONDER_SEND_KEYS = (
+    "ack",
+    "delay",
+    "timeout",
+    "retry_implicit_ack",
+    "retry_nak",
+)
 
 ANSI_RESET = "\033[0m"
 ANSI_BOLD = "\033[1m"
@@ -505,6 +512,7 @@ def format_source_label(source: str) -> str:
     colors = {
         "cmd": "cyan",
         "cfg": "green",
+        "send_cfg": "green",
         "default": "yellow",
         "auto": "magenta",
         "prompt": "blue",
@@ -526,6 +534,12 @@ def print_effective_parameters(settings: dict, mode_label: str, fields: list[tup
     config_path = settings.get("__config_path")
     if config_path:
         print(f"  cfg file: {config_path}")
+    autoresponder_config_path = settings.get("__autoresponder_config_path")
+    if autoresponder_config_path:
+        print(f"  autoresponder cfg file: {autoresponder_config_path}")
+    send_config_path = settings.get("__send_config_path")
+    if send_config_path:
+        print(f"  send cfg file: {send_config_path}")
     for key, value in fields:
         source = settings.get("__sources", {}).get(key, "default")
         print(f"  {format_source_label(source)} {key} = {format_effective_value(value)}")
@@ -838,7 +852,7 @@ def resolve_settings(args: argparse.Namespace) -> dict | None:
     cfg_relevant_overrides = {
         key: value
         for key, value in cli_overrides.items()
-        if key in config_keys_for_family(config_family) and not (key == "mode" and value == "send")
+        if key in config_keys_for_family(config_family) and key != "mode"
     }
     config_exists = config_path.exists()
     should_write_cfg = bool(cfg_relevant_overrides) and not args.protectcfg
@@ -855,6 +869,10 @@ def resolve_settings(args: argparse.Namespace) -> dict | None:
         for key in AUTORESPONDER_CONFIG_KEYS:
             settings[key] = autoresponder_settings[key]
             sources[key] = autoresponder_sources[key]
+        send_settings, send_sources = load_config_with_sources(SEND_CONFIG_PATH, "send")
+        for key in AUTORESPONDER_SEND_KEYS:
+            settings[key] = send_settings[key]
+            sources[key] = "send_cfg" if send_sources.get(key) == "cfg" else send_sources.get(key, "default")
 
     if cli_overrides:
         settings.update(cli_overrides)
@@ -889,6 +907,7 @@ def resolve_settings(args: argparse.Namespace) -> dict | None:
     settings["__config_family"] = config_family
     if config_family == "listen":
         settings["__autoresponder_config_path"] = AUTORESPONDER_CONFIG_PATH
+        settings["__send_config_path"] = SEND_CONFIG_PATH
     return settings
 
 
@@ -1531,6 +1550,10 @@ def format_port_label(portnum) -> str:
     return labels.get(value, value.lower().replace("_app", "").replace("_", "-"))
 
 
+def is_text_message_port(portnum) -> bool:
+    return str(portnum or "UNKNOWN") in {"TEXT_MESSAGE_APP", "TEXT_MESSAGE_COMPRESSED_APP"}
+
+
 def format_receive_line(record: dict) -> str:
     scope_text = record["scope"].upper()
     scope = colorize(scope_text, "green" if scope_text == "DM" else "cyan", bold=True)
@@ -1669,7 +1692,11 @@ def autoresponder_message_matches(record: dict, settings: dict) -> bool:
 def should_autorespond(interface: SerialInterface, packet: dict, record: dict, settings: dict) -> bool:
     if not settings.get("autoresponder"):
         return False
+    if not is_text_message_port(record.get("portnum")):
+        return False
     if not record.get("text"):
+        return False
+    if not str(record.get("text")).strip():
         return False
     local_num = get_local_node_num(interface)
     packet_from = packet.get("from")
@@ -1699,21 +1726,43 @@ def send_autoresponse(
     channel_index = record.get("channel_index")
     if channel_index is None:
         channel_index = 0
-    packet = interface.sendText(
-        reply_text,
-        destinationId=recipient_id,
-        wantAck=False,
-        channelIndex=channel_index,
-    )
-    packet_id = getattr(packet, "id", "unknown")
     recipient_label = record.get("from_label") or recipient_id
-    print(
-        colorize(
-            f"Autoresponder sent to {recipient_label} ({recipient_id}) on channel {channel_index}, packet ID {packet_id}",
-            "magenta",
-            bold=True,
+    result = "sent_without_ack"
+    packet_id = "unknown"
+    if settings["ack"]:
+        ack_kind, ack_message, packet_id, _attempts_used = send_with_ack_retry(
+            interface,
+            {
+                "node_id": recipient_id,
+                "label": recipient_label,
+            },
+            reply_text,
+            {
+                "channel_index": channel_index,
+                "timeout": settings["timeout"],
+                "retry_implicit_ack": settings["retry_implicit_ack"],
+                "retry_nak": settings["retry_nak"],
+                "delay": settings["delay"],
+            },
+            log_path,
         )
-    )
+        result = ack_kind
+        color = "green" if ack_kind == "ack" else "yellow" if ack_kind == "implicit_ack" else "red"
+        print(colorize(f"{ack_message} {recipient_label} ({recipient_id}), packet ID {packet_id} [autoresponder]", color))
+    else:
+        packet = interface.sendText(
+            reply_text,
+            destinationId=recipient_id,
+            wantAck=False,
+            channelIndex=channel_index,
+        )
+        packet_id = getattr(packet, "id", "unknown")
+        print(
+            colorize(
+                f"Sent to {recipient_label} ({recipient_id}), packet ID {packet_id} [autoresponder]",
+                "cyan",
+            )
+        )
     payload = {
         "recipient_id": recipient_id,
         "recipient_label": recipient_label,
@@ -1721,7 +1770,7 @@ def send_autoresponse(
         "channel_name": record.get("channel_name"),
         "message": reply_text,
         "packet_id": packet_id,
-        "result": "sent_without_ack",
+        "result": result,
         "source_text": record.get("text"),
         "source_sender_filter": settings.get("autoresponder_sender_filter", ""),
         "source_message_filter": settings.get("autoresponder_message_filter", ""),
@@ -1752,6 +1801,11 @@ def run_listen_mode(interface: SerialInterface, settings: dict) -> int:
             ("autoresponder_message_mode", settings["autoresponder_message_mode"]),
             ("autoresponder_message_filter", settings["autoresponder_message_filter"]),
             ("autoresponder_reply", settings["autoresponder_reply"]),
+            ("ack", settings["ack"]),
+            ("delay", settings["delay"]),
+            ("timeout", settings["timeout"]),
+            ("retry_implicit_ack", settings["retry_implicit_ack"]),
+            ("retry_nak", settings["retry_nak"]),
             ("unattended", settings["unattended"]),
             ("log_file", log_path if settings["log_file"] else "<disabled>"),
             ("history_file", history_path),
@@ -1776,13 +1830,6 @@ def run_listen_mode(interface: SerialInterface, settings: dict) -> int:
     print(colorize(f"History file: {history_path}", "cyan"))
     if settings["autoresponder"]:
         print(colorize("Autoresponder: enabled", "magenta", bold=True))
-        print(f"Autoresponder cfg: {settings.get('__autoresponder_config_path', AUTORESPONDER_CONFIG_PATH)}")
-        print(f"Autoresponder sender mode: {settings['autoresponder_sender_mode']}")
-        if settings["autoresponder_sender_mode"] == "filter":
-            print(f"Autoresponder sender filter: {settings['autoresponder_sender_filter']}")
-        print(f"Autoresponder message mode: {settings['autoresponder_message_mode']}")
-        if settings["autoresponder_message_mode"] == "filter":
-            print(f"Autoresponder message filter: {settings['autoresponder_message_filter']}")
         if not (settings.get("autoresponder_reply") or "").strip():
             print(colorize("Autoresponder reply text is empty, so no replies will be sent.", "yellow"))
 
