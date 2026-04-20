@@ -1,3 +1,6 @@
 __pycache__/
 *.pyc
 python-3.14.4-amd64.exe
+*.send.cfg
+*.listen.cfg
+*.history.jsonl

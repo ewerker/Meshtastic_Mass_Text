@@ -103,13 +103,13 @@ def colorize(text: str, color: str | None = None, *, bold: bool = False) -> str:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Send Meshtastic direct or broadcast messages, listen for traffic, and review local history."
+        description="Communicate with Meshtastic through direct messages, group broadcasts, live listening, and local history."
     )
     parser.add_argument(
         "--mode",
         choices=("send", "listen", "broadcast", "history"),
         default=None,
-        help="Run in direct-send, listen, broadcast, or history mode.",
+        help="Run in direct-message, listen, broadcast, or history mode.",
     )
     parser.add_argument(
         "--listen",
@@ -135,7 +135,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--channel-index",
         type=int,
         default=None,
-        help="Channel index to use for sending direct messages (default: 0).",
+        help="Channel index to use for direct messages or broadcasts (default: 0).",
     )
     parser.add_argument(
         "--ack",
@@ -165,7 +165,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--final-wait",
         type=float,
         default=None,
-        help="Seconds to keep the connection open after the last send when not waiting for ACKs (default: 5.0).",
+        help="Seconds to keep the connection open after the last transmission when not waiting for ACKs (default: 5.0).",
     )
     parser.add_argument(
         "--retry-implicit-ack",
@@ -187,18 +187,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--clear",
         action="store_true",
-        help="Delete the cfg file in the script directory and exit.",
+        help="Delete the active cfg file for the selected workflow and exit.",
     )
     cfg_group = parser.add_mutually_exclusive_group()
     cfg_group.add_argument(
         "--forcecfg",
         action="store_true",
-        help="Always write/update the cfg when parameters are passed.",
+        help="Always write/update the active cfg when parameters are passed.",
     )
     cfg_group.add_argument(
         "--protectcfg",
         action="store_true",
-        help="Never write/update the cfg for this run, even when parameters are passed.",
+        help="Never write/update the active cfg for this run, even when parameters are passed.",
     )
     parser.add_argument(
         "--target-mode",
@@ -220,7 +220,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--message",
         default=None,
-        help="Default message text to send. If omitted, the script asks interactively unless a message exists in the cfg.",
+        help="Default message text for direct messages or broadcasts. If omitted, the script asks interactively unless a message exists in the cfg.",
     )
     parser.add_argument(
         "--dry-run",
