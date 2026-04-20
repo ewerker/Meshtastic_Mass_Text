@@ -125,7 +125,7 @@ def example_command() -> str:
     return (
         f'"{python_exe}" "{script_path}" --port COM7 --channel-index 1 --ack '
         '--delay 1.5 --timeout 60 --target-mode filter --filter "FR*" '
-        '--message "Testnachricht" --unattended'
+        '--message "Test message" --unattended'
     )
 
 
@@ -206,8 +206,8 @@ def resolve_settings(args: argparse.Namespace) -> dict | None:
     should_write_cfg = bool(cli_overrides) and not args.protectcfg
 
     if not config_exists and not cli_overrides:
-        print(f"Keine Konfigurationsdatei gefunden: {CONFIG_PATH}")
-        print("Starte das Skript beim ersten Mal mit Parametern, zum Beispiel:")
+        print(f"No configuration file found: {CONFIG_PATH}")
+        print("Run the script with parameters the first time, for example:")
         print(example_command())
         return None
 
@@ -218,13 +218,13 @@ def resolve_settings(args: argparse.Namespace) -> dict | None:
         if should_write_cfg:
             save_config(settings)
             if config_exists:
-                print(f"Konfiguration aktualisiert: {CONFIG_PATH}")
+                print(f"Configuration updated: {CONFIG_PATH}")
             else:
-                print(f"Konfiguration erstellt: {CONFIG_PATH}")
+                print(f"Configuration created: {CONFIG_PATH}")
         elif args.protectcfg:
-            print("CFG-Schutz aktiv, Konfiguration wird fuer diesen Lauf nicht gespeichert.")
+            print("CFG protection is active, configuration changes will not be saved for this run.")
     elif config_exists:
-        print(f"Verwende Konfiguration aus: {CONFIG_PATH}")
+        print(f"Using configuration from: {CONFIG_PATH}")
 
     return settings
 
@@ -232,9 +232,9 @@ def resolve_settings(args: argparse.Namespace) -> dict | None:
 def clear_config() -> int:
     if CONFIG_PATH.exists():
         CONFIG_PATH.unlink()
-        print(f"Konfiguration geloescht: {CONFIG_PATH}")
+        print(f"Configuration deleted: {CONFIG_PATH}")
     else:
-        print(f"Keine Konfiguration vorhanden: {CONFIG_PATH}")
+        print(f"No configuration file present: {CONFIG_PATH}")
     return 0
 
 
@@ -242,10 +242,10 @@ def prompt_message(default_message: str | None = None, unattended: bool = False)
     if unattended:
         message = (default_message or "").strip()
         if not message:
-            raise ValueError("Keine Nachricht gesetzt. Bitte --message angeben oder in der cfg speichern.")
+            raise ValueError("No message is set. Please provide --message or store one in the cfg.")
         return message
 
-    prompt = "Text, der gesendet werden soll"
+    prompt = "Message text to send"
     if default_message:
         prompt += f' [{default_message}]'
     prompt += ": "
@@ -253,7 +253,7 @@ def prompt_message(default_message: str | None = None, unattended: bool = False)
     if not message and default_message:
         message = default_message.strip()
     if not message:
-        raise ValueError("Leere Nachricht wird nicht gesendet.")
+        raise ValueError("Empty messages are not sent.")
     return message
 
 
@@ -274,28 +274,28 @@ def get_available_ports() -> list:
 
 def print_available_ports(ports: list) -> None:
     if not ports:
-        print("Keine seriellen Ports gefunden.")
+        print("No serial ports found.")
         return
 
-    print("Verfuegbare serielle Ports:")
+    print("Available serial ports:")
     for index, port in enumerate(ports, start=1):
-        description = port.description or "ohne Beschreibung"
-        hwid = port.hwid or "ohne HWID"
+        description = port.description or "no description"
+        hwid = port.hwid or "no HWID"
         print(f"  {index}. {port.device} - {description} [{hwid}]")
 
 
 def choose_port_interactively(ports: list) -> str:
     while True:
-        choice = input("Welchen Port moechtest du verwenden? Nummer eingeben: ").strip()
+        choice = input("Which port do you want to use? Enter the number: ").strip()
         if not choice.isdigit():
-            print("Bitte eine gueltige Nummer eingeben.")
+            print("Please enter a valid number.")
             continue
 
         selected_index = int(choice)
         if 1 <= selected_index <= len(ports):
             return ports[selected_index - 1].device
 
-        print("Die Nummer liegt ausserhalb der Liste.")
+        print("That number is outside the list.")
 
 
 def resolve_port(cli_port: str | None, unattended: bool = False) -> str:
@@ -304,16 +304,16 @@ def resolve_port(cli_port: str | None, unattended: bool = False) -> str:
 
     ports = get_available_ports()
     if not ports:
-        raise RuntimeError("Keine seriellen Ports gefunden. Bitte Geraet anschliessen oder --port angeben.")
+        raise RuntimeError("No serial ports found. Please connect a device or provide --port.")
 
     if len(ports) == 1:
         selected = ports[0].device
-        print(f"Ein serieller Port gefunden, verwende automatisch: {selected}")
+        print(f"One serial port found, selecting it automatically: {selected}")
         return selected
 
     if unattended:
         raise RuntimeError(
-            "Mehrere serielle Ports gefunden. Bitte --port angeben oder einen Port in der cfg speichern."
+            "Multiple serial ports found. Please provide --port or save a port in the cfg."
         )
 
     print_available_ports(ports)
@@ -354,24 +354,24 @@ def prompt_target_mode(
         return cli_target_mode, None
     if unattended:
         if cli_target_mode == "filter":
-            raise ValueError("Im unattended-Modus fehlt der Filter. Bitte --filter angeben oder in der cfg speichern.")
+            raise ValueError("Filter is missing in unattended mode. Please provide --filter or save it in the cfg.")
         return "all", None
 
     while True:
         print()
-        print("Zielauswahl:")
-        print("  1. An alle bekannten Nodes senden")
-        print("  2. Gefiltert senden")
-        choice = input("Auswahl [1/2]: ").strip()
-        if choice in {"1", "all", "alle"}:
+        print("Target selection:")
+        print("  1. Send to all known nodes")
+        print("  2. Send to filtered matches")
+        choice = input("Choice [1/2]: ").strip()
+        if choice in {"1", "all"}:
             return "all", None
-        if choice in {"2", "filter", "gefiltert"}:
-            target_filter = input("Filter eingeben (z. B. !55d8c9dc, Rico oder FR*): ").strip()
+        if choice in {"2", "filter"}:
+            target_filter = input("Enter a filter (for example !55d8c9dc, Rico, or FR*): ").strip()
             if target_filter:
                 return "filter", target_filter
-            print("Bitte einen nicht-leeren Filter eingeben.")
+            print("Please enter a non-empty filter.")
             continue
-        print("Bitte 1 oder 2 eingeben.")
+        print("Please enter 1 or 2.")
 
 
 def recipient_matches_filter(recipient: dict, target_filter: str) -> bool:
@@ -396,7 +396,7 @@ def select_recipients(
 ) -> tuple[list[dict], str]:
     target_mode, target_filter = prompt_target_mode(cli_target_mode, cli_target_filter, unattended)
     if target_mode == "all":
-        return recipients, "alle bekannten Nodes"
+        return recipients, "all known nodes"
 
     filtered = [recipient for recipient in recipients if recipient_matches_filter(recipient, target_filter)]
     return filtered, f'Filter "{target_filter}"'
@@ -404,17 +404,17 @@ def select_recipients(
 
 def confirm_send(message: str, recipients: list[dict], target_description: str, unattended: bool = False) -> bool:
     print()
-    print(f'Nachricht: "{message}"')
-    print(f"Zielmodus: {target_description}")
-    print(f"Empfaenger: {len(recipients)}")
+    print(f'Message: "{message}"')
+    print(f"Target mode: {target_description}")
+    print(f"Recipients: {len(recipients)}")
     for recipient in recipients:
         print(f"  - {recipient['label']} ({recipient['node_id']})")
     print()
     if unattended:
-        print("Unattended-Modus aktiv, sende ohne Rueckfrage.")
+        print("Unattended mode is active, sending without confirmation.")
         return True
-    answer = input("Jetzt senden? [j/N]: ").strip().lower()
-    return answer in {"j", "ja", "y", "yes"}
+    answer = input("Send now? [y/N]: ").strip().lower()
+    return answer in {"y", "yes"}
 
 
 def wait_for_ack(interface: SerialInterface, message: str, node_id: str, channel_index: int, timeout: int):
@@ -435,14 +435,14 @@ def wait_for_ack(interface: SerialInterface, message: str, node_id: str, channel
     )
 
     if not ack_event.wait(timeout):
-        raise TimeoutError(f"Kein ACK/NAK innerhalb von {timeout}s fuer Paket-ID {packet.id}")
+        raise TimeoutError(f"No ACK/NAK received within {timeout}s for packet ID {packet.id}")
 
     return packet, ack_result["packet"]
 
 
 def classify_ack(interface: SerialInterface, ack_packet: dict | None) -> tuple[str, str]:
     if not ack_packet:
-        return "timeout", "Kein ACK/NAK-Paket empfangen."
+        return "timeout", "No ACK/NAK packet received."
 
     routing = ack_packet.get("decoded", {}).get("routing", {})
     error_reason = routing.get("errorReason", "NONE")
@@ -450,7 +450,7 @@ def classify_ack(interface: SerialInterface, ack_packet: dict | None) -> tuple[s
         return "nak", f"Received a NAK, error reason: {error_reason}"
 
     if int(ack_packet.get("from", -1)) == interface.localNode.nodeNum:
-        return "implicit_ack", "Versendet, aber nicht bestaetigt (nur implizites ACK)."
+        return "implicit_ack", "Sent, but not confirmed (implicit ACK only)."
 
     return "ack", "Received an ACK."
 
@@ -479,23 +479,23 @@ def main() -> int:
     interface = None
     try:
         port = resolve_port(settings["port"] or None, settings["unattended"])
-        print(f"Verbinde ueber {port} ...")
+        print(f"Connecting via {port} ...")
         interface = SerialInterface(devPath=port, timeout=settings["timeout"])
         recipients = collect_recipients(interface, settings["include_unmessageable"])
 
         if not recipients:
-            print("Keine passenden bekannten Nodes gefunden.")
+            print("No matching known nodes found.")
             return 1
 
         recipients, target_description = select_recipients(
             recipients, settings["target_mode"], settings["target_filter"], settings["unattended"]
         )
         if not recipients:
-            print("Keine Nodes passen zur gewaehlten Filterauswahl.")
+            print("No nodes match the selected filter.")
             return 1
 
         if not confirm_send(message, recipients, target_description, settings["unattended"]):
-            print("Abgebrochen.")
+            print("Cancelled.")
             return 0
 
         sent = 0
@@ -515,17 +515,17 @@ def main() -> int:
                         settings["channel_index"],
                         settings["timeout"],
                     )
-                    packet_id = getattr(packet, "id", "unbekannt")
+                    packet_id = getattr(packet, "id", "unknown")
                     ack_kind, ack_message = classify_ack(interface, ack_packet)
                     if ack_kind == "ack":
                         acked += 1
-                        print(f"{ack_message} {label} ({node_id}), Paket-ID {packet_id}")
+                        print(f"{ack_message} {label} ({node_id}), packet ID {packet_id}")
                     elif ack_kind == "implicit_ack":
                         implicit_acks += 1
-                        print(f"{ack_message} {label} ({node_id}), Paket-ID {packet_id}")
+                        print(f"{ack_message} {label} ({node_id}), packet ID {packet_id}")
                     else:
                         failed += 1
-                        print(f"{ack_message} {label} ({node_id}), Paket-ID {packet_id}")
+                        print(f"{ack_message} {label} ({node_id}), packet ID {packet_id}")
                 else:
                     packet = interface.sendText(
                         message,
@@ -533,31 +533,31 @@ def main() -> int:
                         wantAck=False,
                         channelIndex=settings["channel_index"],
                     )
-                    packet_id = getattr(packet, "id", "unbekannt")
-                    print(f"Gesendet an {label} ({node_id}), Paket-ID {packet_id}")
+                    packet_id = getattr(packet, "id", "unknown")
+                    print(f"Sent to {label} ({node_id}), packet ID {packet_id}")
 
                 sent += 1
             except Exception as exc:
                 failed += 1
-                print(f"Fehler bei {label} ({node_id}): {exc}")
+                print(f"Error for {label} ({node_id}): {exc}")
 
             time.sleep(settings["delay"])
 
         if not settings["ack"] and settings["final_wait"] > 0:
             print()
             print(
-                f"Warte noch {settings['final_wait']:.1f}s, damit das Geraet ausgehende Pakete fertig senden kann ..."
+                f"Waiting another {settings['final_wait']:.1f}s so the device can finish sending outgoing packets ..."
             )
             time.sleep(settings["final_wait"])
 
         print()
         if settings["ack"]:
-            print(f"Fertig. ACK: {acked}, implizite ACKs: {implicit_acks}, Fehler/Timeouts: {failed}")
+            print(f"Done. ACKs: {acked}, implicit ACKs: {implicit_acks}, errors/timeouts: {failed}")
         else:
-            print(f"Fertig. Angestossen: {sent}, Fehler: {failed}")
+            print(f"Done. Triggered: {sent}, errors: {failed}")
         return 0 if sent else 1
     except Exception as exc:
-        print(f"Verbindung oder Senden fehlgeschlagen: {exc}")
+        print(f"Connection or send failed: {exc}")
         return 1
     finally:
         if interface is not None:
