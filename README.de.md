@@ -1,6 +1,6 @@
 # Meshtastic_Mass_Com
 
-Aktuelle Version: `0.7.3`
+Aktuelle Version: `0.7.6`
 
 Deutsche Dokumentation. English version: [README.md](C:\Users\richt\Documents\Codex\Meshtastic_tool\README.md)
 Release Notes: [CHANGELOG.md](C:\Users\richt\Documents\Codex\Meshtastic_tool\CHANGELOG.md)
@@ -8,6 +8,12 @@ Release Notes: [CHANGELOG.md](C:\Users\richt\Documents\Codex\Meshtastic_tool\CHA
 Copyright (c) 2026 Frank Richter, [w-2.de](https://w-2.de)
 
 Kleines Python-Werkzeug fuer umfassende Meshtastic-Kommunikation: Direktnachrichten, Gruppen-Broadcasts, Live-Mitschnitt, Logging, History und getrennte lokale Konfigurationsdateien fuer Senden und Lauschen.
+
+## Weiteres Projekt
+
+Wenn du ausserdem einen einfachen Viewer suchst, der direkt im Browser funktioniert, schau dir [meshview](https://github.com/ewerker/meshview) an.
+
+`meshview` konzentriert sich auf die Anzeige im Browser, waehrend `Meshtastic_Mass_Com` eher fuer Kommunikationsablaeufe, wiederverwendbare CFG-Steuerung, Listening, Logging und Autoresponder gedacht ist.
 
 ## Ueberblick
 

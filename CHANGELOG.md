@@ -8,6 +8,12 @@ The format is inspired by Keep a Changelog and uses project release tags where a
 
 - Reserved for upcoming changes before the next tagged release.
 
+## [0.7.6] - 2026-04-23
+
+### Changed
+
+- Added a documentation note in the English and German README that points to the related browser-based project [meshview](https://github.com/ewerker/meshview).
+
 ## [0.7.5] - 2026-04-20
 
 ### Changed
